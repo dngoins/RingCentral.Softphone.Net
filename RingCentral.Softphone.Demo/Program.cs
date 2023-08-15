@@ -229,13 +229,13 @@ namespace RingCentral.Softphone.Demo
                 bytesRead = await sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), CancellationToken.None);
                 Console.WriteLine(Encoding.UTF8.GetString(cache, 0, bytesRead.Count));
 
-                await Task.Delay(1000);
+               // await Task.Delay(1000);
 
                 // Message
                 bytesRead = await sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), CancellationToken.None);
                 Console.WriteLine(Encoding.UTF8.GetString(cache, 0, bytesRead.Count));
 
-                await Task.Delay(1000);
+               // await Task.Delay(1000);
 
                 // The purpose of sending a DTMF tone is if our SDP had a private IP address then the server needs to get at least
                 // one RTP packet to know where to send.
