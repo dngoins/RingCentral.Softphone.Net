@@ -107,7 +107,7 @@ namespace RingCentral.Softphone.Demo
 
                 var sipMessage = new SipMessage($"REGISTER sip:{sipInfo.domain} SIP/2.0", new Dictionary<string, string>
                 {
-                    {"Call-ID", Guid.NewGuid().ToString()},
+                    {"Call-Id", Guid.NewGuid().ToString()},
                     {"User-Agent", userAgent},
                     {"Contact", $"<sip:{fakeEmail};transport=ws>;expires=600"},
                     {"Via", $"SIP/2.0/WSS {fakeDomain};branch=z9hG4bK{Guid.NewGuid().ToString()}"},
@@ -175,9 +175,59 @@ namespace RingCentral.Softphone.Demo
                 var inviteMessage = Encoding.UTF8.GetString(cache, 0, bytesRead.Count);
                 var inviteSipMessage = SipMessage.FromMessage(inviteMessage);
 
+                // Now respond with Ringing message
+                var sipRingingMsg = new SipMessage($"SIP/2.0 180 Ringing", new Dictionary<string, string>
+                {
+                    {"Via", inviteSipMessage.Headers["Via"] },                    
+                    {"From", inviteSipMessage.Headers["From"]},
+                    {"Call-Id", inviteSipMessage.Headers["Call-Id"]},
+                    {"CSeq", inviteSipMessage.Headers["CSeq"]},
+                    {"Contact", inviteSipMessage.Headers["Contact"] },
+                    {"Supported", "outbound" },
+                    {"To", inviteSipMessage.Headers["To"]},
+                    {"Content-Length", "0"},                    
+                }, "");
+
+                // write
+                var ringing_message = sipRingingMsg.ToMessage();
+                Console.WriteLine(ringing_message + "\n");
+                bytes = Encoding.UTF8.GetBytes(ringing_message);
+                sipWebSocket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None).Wait();
+
+                // Now send MESSAGE msg
+                var bodyMsg = inviteSipMessage.Headers["P-rc"];
+                var sipMessageMsg = new SipMessage($"MESSAGE sip:{sipInfo.domain} SIP/2.0", new Dictionary<string, string>
+                {
+                    {"From", inviteSipMessage.Headers["From"]},
+                    {"To", inviteSipMessage.Headers["To"]},
+                    {"Content-Type", "x-rc/agent"},
+                    {"CSeq", "8084 MESSAGE"},
+                    {"Call-Id", inviteSipMessage.Headers["Call-Id"]},
+                    {"User-Agent", userAgent},
+                    {"Via", inviteSipMessage.Headers["Via"] },
+                    {"Content-Length", bodyMsg.Length.ToString() },
+                    {"Max-Forwards", inviteSipMessage.Headers["Max-Forwards"]},
+                }, "");
+
+                // write
+                var messageMsg = sipMessageMsg.ToMessage();
+                Console.WriteLine(messageMsg + "\n");
+                bytes = Encoding.UTF8.GetBytes(messageMsg);
+                sipWebSocket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None).Wait();
+
+                // 100 trying
+                bytesRead = await sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), CancellationToken.None);
+                Console.WriteLine(Encoding.UTF8.GetString(cache, 0, bytesRead.Count) + "\n");
+
+                // 200 OK
+                bytesRead = await sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), CancellationToken.None);
+                Console.WriteLine(Encoding.UTF8.GetString(cache, 0, bytesRead.Count) + "\n");
+
+                Console.WriteLine("\n--------------------\n\n\tReady for RTCPeering\n-------------------\n");
+
                 // RTP - use SipSocery to establish a RTP session
                 //"stun:" + sipInfo.stunServers[0]; //
-                string STUN_URL = "stun:stun.sipsorcery.com";
+                string STUN_URL = "stun:" + sipInfo.stunServers[0]; // "stun:stun.sipsorcery.com";
 
                 RTCConfiguration config = new RTCConfiguration
                 {
@@ -206,7 +256,7 @@ namespace RingCentral.Softphone.Demo
 
                 rtcPeer.onconnectionstatechange += async (state) =>
                 {
-                    Console.WriteLine($"Peer connection state change to {state}.");
+                    Console.WriteLine($"Peer connection state change to {state}.\n");
 
                     if (state == RTCPeerConnectionState.connected)
                     {
@@ -233,7 +283,7 @@ namespace RingCentral.Softphone.Demo
                 //if (sdpDescription == null)
                 //    sdpDescription = new SDP();
 
-                await Console.Out.WriteLineAsync(offerAnswer.ToJson());
+                await Console.Out.WriteLineAsync(offerAnswer.ToJson() + "\n");
 
 
                 //Console.WriteLine(result);
@@ -249,7 +299,7 @@ namespace RingCentral.Softphone.Demo
 
                 // ACK
                 bytesRead = await sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), CancellationToken.None);
-                Console.WriteLine(Encoding.UTF8.GetString(cache, 0, bytesRead.Count));
+                Console.WriteLine(Encoding.UTF8.GetString(cache, 0, bytesRead.Count) + "\n");
 
                // await Task.Delay(1000);
 
@@ -265,6 +315,7 @@ namespace RingCentral.Softphone.Demo
                     if (rtcPeer.signalingState == RTCSignalingState.have_remote_offer)
                     {
                         //Context.WebSocket.Send(iceCandidate.toJSON());
+                        Console.WriteLine(iceCandidate.ToJson() + "\n");
                         bytes = Encoding.UTF8.GetBytes(iceCandidate.ToJson());
                         sipWebSocket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, false, CancellationToken.None).Wait();
 
@@ -296,7 +347,7 @@ namespace RingCentral.Softphone.Demo
 
         private static void RtcPeer_OnRtcpBye(string obj)
         {
-            Console.WriteLine(  "bye");
+            Console.WriteLine(  "bye\n");
         }
 
         private static void AudioSource_OnSendFromAudioStreamComplete()
@@ -316,7 +367,7 @@ namespace RingCentral.Softphone.Demo
 
         private static void RtcPeer_OnStarted()
         {
-            Console.WriteLine("RtcPeer Started...");
+            Console.WriteLine("RtcPeer Started...\n");
         }
 
         private static void RtpSession_OnRtpEvent(IPEndPoint arg1, RTPEvent arg2, RTPHeader arg3)
@@ -326,7 +377,7 @@ namespace RingCentral.Softphone.Demo
 
         private static void RtpSession_OnStarted()
         {
-            Console.WriteLine("RtpSession Started...");
+            Console.WriteLine("RtpSession Started...\n");
         }
     }
 }
