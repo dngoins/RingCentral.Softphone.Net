@@ -13,11 +13,13 @@ using SIPSorcery.SIP.App;
 using SIPSorceryMedia.Abstractions;
 using TinyJson;
 using System.Net.WebSockets;
+using SIPSorcery.Media;
+using Newtonsoft.Json;
 
 namespace RingCentral.Softphone.Demo
 {
     class Program
-    {      
+    {
         static RestClient rc;
 
         // Taken from Getting Started example
@@ -76,15 +78,15 @@ namespace RingCentral.Softphone.Demo
                         {
                             transport = "WSS"
                         }
-                    }                    
+                    }
                 });
 
                 // See all the Device data that is returned from RingCentral
                 Console.WriteLine(sipProvision.ToJson() + "\n");
 
                 var sipInfo = sipProvision.sipInfo[0];
-                Console.WriteLine( sipInfo.ToJson() + "\n" );
-                
+                Console.WriteLine(sipInfo.ToJson() + "\n");
+
                 // Create the websocket
                 var sipWebSocket = new ClientWebSocket();
 
@@ -121,7 +123,7 @@ namespace RingCentral.Softphone.Demo
                 Console.WriteLine(message + "\n");
                 var bytes = Encoding.UTF8.GetBytes(message);
                 sipWebSocket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None).Wait();
-                
+
                 // read
                 var cache = new byte[10240];
 
@@ -133,7 +135,7 @@ namespace RingCentral.Softphone.Demo
                 // 401 Unauthorized
                 bytesRead = await sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), CancellationToken.None);
                 var nonceMessage = SipMessage.FromMessage(Encoding.UTF8.GetString(cache, 0, bytesRead.Count));
-                
+
                 var wwwAuth = "";
                 if (nonceMessage.Headers.ContainsKey("WWW-Authenticate"))
                 {
@@ -174,71 +176,147 @@ namespace RingCentral.Softphone.Demo
                 var inviteSipMessage = SipMessage.FromMessage(inviteMessage);
 
                 // RTP - use SipSocery to establish a RTP session
-                RTPSession rtpSession = new RTPSession(false, false, false);
+                //"stun:" + sipInfo.stunServers[0]; //
+                string STUN_URL = "stun:stun.sipsorcery.com";
+
+                RTCConfiguration config = new RTCConfiguration
+                {
+                    iceServers = new List<RTCIceServer> { new RTCIceServer { urls = STUN_URL } }
+                };
+                var rtcPeer = new RTCPeerConnection(config);
+
+                var audioSource = new AudioExtrasSource(new AudioEncoder(), new AudioSourceOptions { AudioSource = AudioSourcesEnum.Silence });
+
+                //RTPSession rtpSession = new RTPSession(false, false, false);
                 MediaStreamTrack audioTrack = new MediaStreamTrack(new List<AudioFormat>
-                    {new AudioFormat(SDPWellKnownMediaFormatsEnum.PCMU)});
-                rtpSession.addTrack(audioTrack);
-                
-                var sdpDescription = SDP.ParseSDPDescription(inviteSipMessage.Body);
-                if (sdpDescription == null)
-                    sdpDescription = new SDP();
+                    {new AudioFormat(SDPWellKnownMediaFormatsEnum.PCMU)}, MediaStreamStatusEnum.SendRecv );
+                //rtpSession.addTrack(audioTrack);
+                rtcPeer.addTrack(audioTrack);
 
-                var result =
-                    rtpSession.SetRemoteDescription(SdpType.offer, sdpDescription );
-                Console.WriteLine(result);
-                var answer = rtpSession.CreateAnswer(null);
-                rtpSession.OnStarted += RtpSession_OnStarted;
-                rtpSession.OnRtpEvent += RtpSession_OnRtpEvent;
-                rtpSession.OnRtpPacketReceived +=
-                    (IPEndPoint remoteEndPoint, SDPMediaTypesEnum mediaType, RTPPacket rtpPacket) =>
-                    {
-                        Console.WriteLine("OnRtpPacketReceived");
-                    };
+                audioSource.OnAudioSinkError += (error) => { Console.WriteLine(error); };
+                audioSource.OnSendFromAudioStreamComplete += AudioSource_OnSendFromAudioStreamComplete;
 
-                sipMessage =
-                    new SipMessage("SIP/2.0 200 OK", new Dictionary<string, string>
+                audioSource.OnAudioSourceEncodedSample += (durationRtpUnits, sample) =>
+                {
+                    //rtpSession.SendAudioFrame(sample);
+                    rtcPeer.SendAudio(durationRtpUnits, sample);
+                };  
+
+                audioSource.OnAudioSourceError += (error) => { Console.WriteLine(error); };
+
+                rtcPeer.onconnectionstatechange += async (state) =>
+                {
+                    Console.WriteLine($"Peer connection state change to {state}.");
+
+                    if (state == RTCPeerConnectionState.connected)
                     {
-                        {"Contact", $"<sip:{fakeEmail};transport=ws>"},
-                        {"Content-Type", "application/sdp"},
-                        {"Content-Length", answer.ToString().Length.ToString()},
-                        {"User-Agent", "RingCentral.Softphone.Net"},
-                        {"Via", inviteSipMessage.Headers["Via"]},
-                        {"From", inviteSipMessage.Headers["From"]},
-                        {"To", $"{inviteSipMessage.Headers["To"]};tag={Guid.NewGuid().ToString()}"},
-                        {"CSeq", inviteSipMessage.Headers["CSeq"]},
-                        {"Supported", "outbound"},
-                        {"Call-Id", inviteSipMessage.Headers["Call-Id"]},
-                    }, answer.ToString());
+                        await audioSource.StartAudio();
+                       // await windowsVideoEndPoint.StartVideo();
+                       // await testPatternSource.StartVideo();
+                    }
+                    else if (state == RTCPeerConnectionState.failed)
+                    {
+                        rtcPeer.Close("ice disconnection");
+                    }
+                    else if (state == RTCPeerConnectionState.closed)
+                    {
+                     //   await testPatternSource.CloseVideo();
+                     //   await windowsVideoEndPoint.CloseVideo();
+                        await audioSource.CloseAudio();
+                    }
+                };
+
+                var offerAnswer = rtcPeer.createOffer(null);
+                await rtcPeer.setLocalDescription(offerAnswer);
+
+                //var sdpDescription = SDP.ParseSDPDescription(inviteSipMessage.Body);
+                //if (sdpDescription == null)
+                //    sdpDescription = new SDP();
+
+                await Console.Out.WriteLineAsync(offerAnswer.ToJson());
+
+
+                //Console.WriteLine(result);
+                //var answer = rtpSession.CreateAnswer(null);
+                rtcPeer.OnStarted += RtcPeer_OnStarted;
+               
+                rtcPeer.OnRtpPacketReceived += RtcPeer_OnRtpPacketReceived;
+                rtcPeer.OnRtcpBye += RtcPeer_OnRtcpBye;
 
                 // write
-                message = sipMessage.ToMessage();
-                Console.WriteLine(message);
-                bytes = Encoding.UTF8.GetBytes(message);
+                bytes = Encoding.UTF8.GetBytes(offerAnswer.ToJson());
                 sipWebSocket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, false, CancellationToken.None).Wait();
 
                 // ACK
                 bytesRead = await sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), CancellationToken.None);
                 Console.WriteLine(Encoding.UTF8.GetString(cache, 0, bytesRead.Count));
 
-                await Task.Delay(1000);
+               // await Task.Delay(1000);
 
                 // Message
-                bytesRead = await sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), CancellationToken.None);
-                Console.WriteLine(Encoding.UTF8.GetString(cache, 0, bytesRead.Count));
+                //bytesRead = await sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), CancellationToken.None);
+                //Console.WriteLine(Encoding.UTF8.GetString(cache, 0, bytesRead.Count));
 
-                await Task.Delay(1000);
+               // await Task.Delay(1000);
+
+                // ICE
+                rtcPeer.onicecandidate += (iceCandidate) =>
+                {
+                    if (rtcPeer.signalingState == RTCSignalingState.have_remote_offer)
+                    {
+                        //Context.WebSocket.Send(iceCandidate.toJSON());
+                        bytes = Encoding.UTF8.GetBytes(iceCandidate.ToJson());
+                        sipWebSocket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, false, CancellationToken.None).Wait();
+
+                        var bytesReadTask = sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), CancellationToken.None);
+                        bytesReadTask.Wait();
+                        bytesRead = bytesReadTask.Result;
+                        var iceResponse = Encoding.UTF8.GetString(cache, 0, bytesRead.Count);
+                        Console.WriteLine(iceResponse + "\n");
+                        var iceCandidateInit = JsonConvert.DeserializeObject<RTCIceCandidateInit>(iceResponse);
+                        rtcPeer.addIceCandidate(iceCandidateInit);
+
+                    }
+                };
+
+               
 
                 // The purpose of sending a DTMF tone is if our SDP had a private IP address then the server needs to get at least
                 // one RTP packet to know where to send.
-                await rtpSession.SendDtmf(0, CancellationToken.None);
+                await rtcPeer.SendDtmf(0, CancellationToken.None);
 
                 // Message
-                bytesRead = await sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), CancellationToken.None);
-                Console.WriteLine(Encoding.UTF8.GetString(cache, 0, bytesRead.Count) + "\n" );
+                //bytesRead = await sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), CancellationToken.None);
+                //Console.WriteLine(Encoding.UTF8.GetString(cache, 0, bytesRead.Count) + "\n");
 
                 // Do not exit, wait for the incoming audio
                 await Task.Delay(999999999);
             }).GetAwaiter().GetResult();
+        }
+
+        private static void RtcPeer_OnRtcpBye(string obj)
+        {
+            Console.WriteLine(  "bye");
+        }
+
+        private static void AudioSource_OnSendFromAudioStreamComplete()
+        {
+            Console.WriteLine(  "audiosource on send from stream complete\n");
+        }
+
+        
+        private static void RtcPeer_OnRtpPacketReceived(IPEndPoint arg1, SDPMediaTypesEnum arg2, RTPPacket arg3)
+        {
+            //(IPEndPoint remoteEndPoint, SDPMediaTypesEnum mediaType, RTPPacket rtpPacket) =>
+            //{
+            Console.WriteLine("OnRtpPacketReceived");
+            //};
+
+        }
+
+        private static void RtcPeer_OnStarted()
+        {
+            Console.WriteLine("RtcPeer Started...");
         }
 
         private static void RtpSession_OnRtpEvent(IPEndPoint arg1, RTPEvent arg2, RTPHeader arg3)
