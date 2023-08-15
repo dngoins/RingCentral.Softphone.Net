@@ -207,7 +207,7 @@ namespace RingCentral.Softphone.Demo
                     {"Via", inviteSipMessage.Headers["Via"] },
                     {"Content-Length", bodyMsg.Length.ToString() },
                     {"Max-Forwards", inviteSipMessage.Headers["Max-Forwards"]},
-                }, "");
+                }, bodyMsg);
 
                 // write
                 var messageMsg = sipMessageMsg.ToMessage();
