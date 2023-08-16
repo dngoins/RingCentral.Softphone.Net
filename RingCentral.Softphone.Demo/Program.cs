@@ -195,18 +195,20 @@ namespace RingCentral.Softphone.Demo
                 sipWebSocket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None).Wait();
 
                 // Now send MESSAGE msg
+
                 var bodyMsg = inviteSipMessage.Headers["P-rc"];
+
                 var sipMessageMsg = new SipMessage($"MESSAGE sip:{sipInfo.domain} SIP/2.0", new Dictionary<string, string>
                 {
-                    {"From", inviteSipMessage.Headers["From"]},
-                    {"To", inviteSipMessage.Headers["To"]},
+                    {"From", $"<sip:{sipInfo.username}@{sipInfo.domain}>;tag={Guid.NewGuid().ToString()}"},
+                    {"To", $"<sip:#{sipInfo.username}@{sipInfo.domain}>"},                    
                     {"Content-Type", "x-rc/agent"},
                     {"CSeq", "8084 MESSAGE"},
                     {"Call-Id", inviteSipMessage.Headers["Call-Id"]},
                     {"User-Agent", userAgent},
-                    {"Via", inviteSipMessage.Headers["Via"] },
+                    {"Via", $"SIP/2.0/WSS {fakeDomain};branch=z9hG4bK{Guid.NewGuid().ToString()}"},
                     {"Content-Length", bodyMsg.Length.ToString() },
-                    {"Max-Forwards", inviteSipMessage.Headers["Max-Forwards"]},
+                    {"Max-Forwards", "70"},
                 }, bodyMsg);
 
                 // write
