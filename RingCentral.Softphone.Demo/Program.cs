@@ -15,6 +15,7 @@ using TinyJson;
 using System.Net.WebSockets;
 using SIPSorcery.Media;
 using Newtonsoft.Json;
+using System.Xml.Linq;
 
 namespace RingCentral.Softphone.Demo
 {
@@ -129,10 +130,8 @@ namespace RingCentral.Softphone.Demo
 
                 // 100 trying
                 var bytesRead = await sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), CancellationToken.None);
-                //var bytesRead = await networkStream.ReadAsync(cache, 0, cache.Length);
                 Console.WriteLine(Encoding.UTF8.GetString(cache, 0, bytesRead.Count));
 
-                // 401 Unauthorized
                 bytesRead = await sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), CancellationToken.None);
                 var nonceMessage = SipMessage.FromMessage(Encoding.UTF8.GetString(cache, 0, bytesRead.Count));
 
@@ -156,7 +155,7 @@ namespace RingCentral.Softphone.Demo
 
                 // write
                 message = sipMessage.ToMessage();
-                Console.WriteLine(message);
+                Console.WriteLine(message + "\n");
                 bytes = Encoding.UTF8.GetBytes(message);
                 sipWebSocket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None).Wait();
 
@@ -179,29 +178,94 @@ namespace RingCentral.Softphone.Demo
                 var sipRingingMsg = new SipMessage($"SIP/2.0 180 Ringing", new Dictionary<string, string>
                 {
                     {"Via", inviteSipMessage.Headers["Via"] },                    
-                    {"From", inviteSipMessage.Headers["From"]},
+                    {"From", inviteSipMessage.Headers["To"]},
                     {"Call-Id", inviteSipMessage.Headers["Call-Id"]},
                     {"CSeq", inviteSipMessage.Headers["CSeq"]},
                     {"Contact", inviteSipMessage.Headers["Contact"] },
                     {"Supported", "outbound" },
-                    {"To", inviteSipMessage.Headers["To"]},
+                    {"To", inviteSipMessage.Headers["From"]},
                     {"Content-Length", "0"},                    
                 }, "");
 
                 // write
                 var ringing_message = sipRingingMsg.ToMessage();
                 Console.WriteLine(ringing_message + "\n");
+              //  var ringmsg = $"SIP/2.0 180 Ringing\r\nVia: SIP/2.0/WSS 104.245.57.165:8083;rport;branch=z9hG4bK2h1boP-aMTQlj\r\nFrom: \"WIRELESS CALLER\" <sip:+16509999999@104.245.57.165>;tag=10.13.121.68-5070-e02ad7dc192e48\r\nCall-ID: 366abc5e1920429bb3e894f60f9388c1\r\nCSeq: 316586109 INVITE\r\nContact: <sip:fba3ccc7-f58e-4f2f-8bc3-93f6ae418fe1.invalid;transport=ws>\r\nSupported: outbound\r\nTo: \"WIRELESS CALLER\" <sip:16506666666*115@50.237.72.154>;tag=d90da9de-e261-45ec-b2cb-781e484a51de\r\nContent-Length: 0";
                 bytes = Encoding.UTF8.GetBytes(ringing_message);
                 sipWebSocket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None).Wait();
 
+                // Send 200 OK
+                var sipOkMsg = new SipMessage($"SIP/2.0 200 OK", new Dictionary<string, string>
+                {
+                    {"Via", inviteSipMessage.Headers["Via"] },
+                    {"From", inviteSipMessage.Headers["To"]},
+                    {"Call-Id", inviteSipMessage.Headers["Call-Id"]},
+                    {"CSeq", inviteSipMessage.Headers["CSeq"]},
+                    {"Contact", inviteSipMessage.Headers["Contact"] },
+                    {"Supported", "outbound" },
+                    {"To", inviteSipMessage.Headers["From"]},
+                    {"Content-Length", "0"},
+                }, "");
+                message = sipOkMsg.ToMessage();
+                Console.WriteLine(message + "\n");
+                bytes = Encoding.UTF8.GetBytes(message);
+                sipWebSocket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None).Wait();
+
+
+                // ACK trying
+                bytesRead = await sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), CancellationToken.None);
+                Console.WriteLine(Encoding.UTF8.GetString(cache, 0, bytesRead.Count) + "\n");
+
+                // Message
+                //bytesRead = await sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), CancellationToken.None);
+                //Console.WriteLine(Encoding.UTF8.GetString(cache, 0, bytesRead.Count) + "\n");
+
                 // Now send MESSAGE msg
+                var doc = new System.Xml.XmlDocument();
+                doc.LoadXml(inviteSipMessage.Headers["P-rc"]);
+                var toNumber = inviteSipMessage.Headers["From"].Replace("<sip:", "").Replace(">", "");
+                // find @
+                var atIndex = toNumber.IndexOf("@");
+                if (atIndex > 0)
+                {
+                    toNumber = "#"+ toNumber.Substring(0, atIndex) + "@sip.devtest.ringcentral.com:5060";
+                }
+                
+                var fromNumber = inviteSipMessage.Headers["To"].Replace("<sip:", "").Replace(">", "");
+                // find @
+                atIndex = fromNumber.IndexOf("@");
+                if (atIndex > 0)
+                {
+                    fromNumber = fromNumber.Substring(0, atIndex);
+                }
 
-                var bodyMsg = inviteSipMessage.Headers["P-rc"];
+                doc.DocumentElement.FirstChild.Attributes["To"].Value = toNumber;
 
+                doc.DocumentElement.FirstChild.Attributes["From"].Value = fromNumber;
+
+                // Set Cmd attribute to 17
+                doc.DocumentElement.FirstChild.Attributes["Cmd"].Value = "17";
+
+                // set Req attribute to {F27BF503-9AE3-42FD-AF3C-FF74A243B317}
+                doc.DocumentElement.FirstChild.Attributes["Req"].Value = "{F27BF503-9AE3-42FD-AF3C-FF74A243B317}";
+
+                // clear out the body
+                doc.DocumentElement.ChildNodes[1].InnerText = "";
+                
+                // remove body attributes
+                doc.DocumentElement.ChildNodes[1].Attributes.RemoveAll();
+
+                // add Cln attribute to body
+                var cln = doc.CreateAttribute("Cln");
+                cln.Value = "802398776016";
+
+                doc.DocumentElement.ChildNodes[1].Attributes.Append(cln);
+
+                var bodyMsg = doc.OuterXml;
                 var sipMessageMsg = new SipMessage($"MESSAGE sip:{sipInfo.domain} SIP/2.0", new Dictionary<string, string>
                 {
-                    {"From", $"<sip:{sipInfo.username}@{sipInfo.domain}>;tag={Guid.NewGuid().ToString()}"},
-                    {"To", $"<sip:#{sipInfo.username}@{sipInfo.domain}>"},                    
+                    {"From", $"<sip:{fromNumber}@sip.devtest.ringcentral.com>;tag={Guid.NewGuid().ToString()}"},
+                    {"To", $"<sip:{toNumber}@sip.devtest.ringcentral.com:5600>"},                    
                     {"Content-Type", "x-rc/agent"},
                     {"CSeq", "8084 MESSAGE"},
                     {"Call-Id", inviteSipMessage.Headers["Call-Id"]},
@@ -214,22 +278,27 @@ namespace RingCentral.Softphone.Demo
                 // write
                 var messageMsg = sipMessageMsg.ToMessage();
                 Console.WriteLine(messageMsg + "\n");
+
+                //var msgmsg = $"MESSAGE sip:#1336016@sip.ringcentral.com:5060 SIP/2.0\r\nFrom: <sip:16506666666*115@sip.ringcentral.com>;tag=a3e356b9-d9e5-4962-a4b0-6013941f821e\r\nTo: <sip:#1336016@sip.ringcentral.com:5060>\r\nContent-Type: x-rc/agent\r\nCSeq: 8084 MESSAGE\r\nCall-ID: 443c6592-4708-4f91-8bed-4af03304c24e\r\nUser-Agent: ringcentral-softphone-go\r\nVia: SIP/2.0/WSS fba3ccc7-f58e-4f2f-8bc3-93f6ae418fe1.invalid;branch=z9hG4bK0d18207a-96f5-4ff0-94f5-0908e48da9ad\r\nContent-Length: 179\r\nMax-Forwards: 70\r\n<Msg><Hdr SID=\"35488554330848\" Req=\"{{F27BF503-9AE3-42FD-AF3C-FF74A243B317}}\" From=\"16506666666*115\" To=\"#1336016@sip.ringcentral.com:5060\" Cmd=\"17\"/><Bdy Cln=\"802398776016\"/></Msg>";
                 bytes = Encoding.UTF8.GetBytes(messageMsg);
-                sipWebSocket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None).Wait();
+                await sipWebSocket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
+
+               
 
                 // 100 trying
-                bytesRead = await sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), CancellationToken.None);
-                Console.WriteLine(Encoding.UTF8.GetString(cache, 0, bytesRead.Count) + "\n");
+                //bytesRead = await sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), CancellationToken.None);
+                //Console.WriteLine(Encoding.UTF8.GetString(cache, 0, bytesRead.Count) + "\n");
 
                 // 200 OK
-                bytesRead = await sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), CancellationToken.None);
-                Console.WriteLine(Encoding.UTF8.GetString(cache, 0, bytesRead.Count) + "\n");
+                //bytesRead = await sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), CancellationToken.None);
+                //Console.WriteLine(Encoding.UTF8.GetString(cache, 0, bytesRead.Count) + "\n");
 
                 Console.WriteLine("\n--------------------\n\n\tReady for RTCPeering\n-------------------\n");
 
                 // RTP - use SipSocery to establish a RTP session
                 //"stun:" + sipInfo.stunServers[0]; //
-                string STUN_URL = "stun:" + sipInfo.stunServers[0]; // "stun:stun.sipsorcery.com";
+                string STUN_URL = "stun:" + sipInfo.stunServers[0];
+                //"stun:74.125.194.127:19302"; // "stun:" + sipInfo.stunServers[0]; // "stun:stun.sipsorcery.com";
 
                 RTCConfiguration config = new RTCConfiguration
                 {
@@ -278,6 +347,8 @@ namespace RingCentral.Softphone.Demo
                     }
                 };
 
+                await rtcPeer.Start();
+
                 var offerAnswer = rtcPeer.createOffer(null);
                 await rtcPeer.setLocalDescription(offerAnswer);
 
@@ -285,7 +356,7 @@ namespace RingCentral.Softphone.Demo
                 //if (sdpDescription == null)
                 //    sdpDescription = new SDP();
 
-                await Console.Out.WriteLineAsync(offerAnswer.ToJson() + "\n");
+                //await Console.Out.WriteLineAsync(offerAnswer.ToJson() + "\n");
 
 
                 //Console.WriteLine(result);
@@ -296,19 +367,27 @@ namespace RingCentral.Softphone.Demo
                 rtcPeer.OnRtcpBye += RtcPeer_OnRtcpBye;
 
                 // write
-                bytes = Encoding.UTF8.GetBytes(offerAnswer.ToJson());
+                var sipRtpMsg = new SipMessage($"MESSAGE sip:{sipInfo.domain} SIP/2.0", new Dictionary<string, string>
+                {
+                    {"From", $"<sip:{fromNumber}@sip.devtest.ringcentral.com>;tag={Guid.NewGuid().ToString()}"},
+                    {"To", $"<sip:{toNumber}@sip.devtest.ringcentral.com:5600>"},
+                    {"Content-Type", "application/sdp"},
+                    {"Call-Id", Guid.NewGuid().ToString() },
+                    {"User-Agent", userAgent},
+                    {"CSeq", inviteSipMessage.Headers["CSeq"]},
+                    {"Contact", inviteSipMessage.Headers["Contact"] },
+                    {"Via", $"SIP/2.0/WSS {fakeDomain};branch=z9hG4bK{Guid.NewGuid().ToString()}"},
+                    {"Content-Length", offerAnswer.sdp.Length.ToString() },
+                    {"Supported", "outbound" },
+                    {"Max-Forwards", "70"},
+                }, offerAnswer.sdp );
+
+                message = sipRtpMsg.ToMessage();
+                Console.WriteLine(message + "\n");
+                bytes = Encoding.UTF8.GetBytes(message);
                 sipWebSocket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, false, CancellationToken.None).Wait();
 
-                // ACK
-                bytesRead = await sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), CancellationToken.None);
-                Console.WriteLine(Encoding.UTF8.GetString(cache, 0, bytesRead.Count) + "\n");
-
-               // await Task.Delay(1000);
-
-                // Message
-                //bytesRead = await sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), CancellationToken.None);
-                //Console.WriteLine(Encoding.UTF8.GetString(cache, 0, bytesRead.Count));
-
+               
                // await Task.Delay(1000);
 
                 // ICE
@@ -332,7 +411,16 @@ namespace RingCentral.Softphone.Demo
                     }
                 };
 
-               
+                // ACK
+                bytesRead = await sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), CancellationToken.None);
+                Console.WriteLine(Encoding.UTF8.GetString(cache, 0, bytesRead.Count) + "\n");
+
+                // await Task.Delay(1000);
+                
+                // Message
+               // bytesRead = await sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), CancellationToken.None);
+                //Console.WriteLine(Encoding.UTF8.GetString(cache, 0, bytesRead.Count));
+
 
                 // The purpose of sending a DTMF tone is if our SDP had a private IP address then the server needs to get at least
                 // one RTP packet to know where to send.
@@ -372,14 +460,6 @@ namespace RingCentral.Softphone.Demo
             Console.WriteLine("RtcPeer Started...\n");
         }
 
-        private static void RtpSession_OnRtpEvent(IPEndPoint arg1, RTPEvent arg2, RTPHeader arg3)
-        {
-            Console.WriteLine("\n{0}\t{1}\t{2}\n", arg1.ToJson(), arg2.ToJson(), arg3.ToJson());
-        }
-
-        private static void RtpSession_OnStarted()
-        {
-            Console.WriteLine("RtpSession Started...\n");
-        }
+      
     }
 }
