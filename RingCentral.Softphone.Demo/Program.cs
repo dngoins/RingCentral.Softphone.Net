@@ -70,6 +70,21 @@ namespace RingCentral.Softphone.Demo
                 // Just check to see all the extensions in your environment
                 list_extensions().Wait();
 
+            // var rtpSession = new RTPSession(false, false, false); stun:74.125.194.127:19302
+            //stun:stun.1.google.com:19302 
+            //stun: stun1.l.google.com:19302
+                string STUN_URL = "stun:stun.1.google.com:19302";
+
+                RTCConfiguration config = new RTCConfiguration
+                {
+                    iceServers = new List<RTCIceServer> { new RTCIceServer { urls = STUN_URL } }
+                };
+                var rtcPeer = new RTCPeerConnection(config);
+                rtcPeer.OnStarted += RtcPeer_OnStarted;
+                rtcPeer.OnRtpPacketReceived += RtcPeer_OnRtpPacketReceived;
+                rtcPeer.OnRtcpBye += RtcPeer_OnRtcpBye;
+               // await rtcPeer.Start();
+
                 // Create a SIP device by API
                 var sipProvision = await rc.Restapi().ClientInfo().SipProvision().Post(new CreateSipRegistrationRequest
                 {
@@ -110,7 +125,7 @@ namespace RingCentral.Softphone.Demo
                 {
                     {"Call-Id", Guid.NewGuid().ToString()},
                     {"User-Agent", userAgent},
-                    {"Contact", $"<sip:{fakeEmail};transport=ws>;expires=600"},
+                    {"Contact", $"<sip:{fakeEmail};transport=wss>;expires=600"},
                     {"Via", $"SIP/2.0/WSS {fakeDomain};branch=z9hG4bK{Guid.NewGuid().ToString()}"},
                     {"From", $"<sip:{sipInfo.username}@{sipInfo.domain}>;tag={Guid.NewGuid().ToString()}"},
                     {"To", $"<sip:{sipInfo.username}@{sipInfo.domain}>"},
@@ -121,7 +136,7 @@ namespace RingCentral.Softphone.Demo
 
                 // write
                 var message = sipMessage.ToMessage();
-                Console.WriteLine(message + "\n");
+                Console.WriteLine("Sending:\n" + message + "\n");
                 var bytes = Encoding.UTF8.GetBytes(message);
                 sipWebSocket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None).Wait();
 
@@ -130,7 +145,7 @@ namespace RingCentral.Softphone.Demo
 
                 // 100 trying
                 var bytesRead = await sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), CancellationToken.None);
-                Console.WriteLine(Encoding.UTF8.GetString(cache, 0, bytesRead.Count));
+                Console.WriteLine("Receiving:\n" + Encoding.UTF8.GetString(cache, 0, bytesRead.Count));
 
                 bytesRead = await sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), CancellationToken.None);
                 var nonceMessage = SipMessage.FromMessage(Encoding.UTF8.GetString(cache, 0, bytesRead.Count));
@@ -155,42 +170,163 @@ namespace RingCentral.Softphone.Demo
 
                 // write
                 message = sipMessage.ToMessage();
-                Console.WriteLine(message + "\n");
+                Console.WriteLine("Sending:\n"+ message + "\n");
                 bytes = Encoding.UTF8.GetBytes(message);
                 sipWebSocket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None).Wait();
 
                 // 100 trying
                 bytesRead = await sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), CancellationToken.None);
-                Console.WriteLine(Encoding.UTF8.GetString(cache, 0, bytesRead.Count));
+                Console.WriteLine("Receiving:\n" + Encoding.UTF8.GetString(cache, 0, bytesRead.Count));
 
                 // 200 OK
                 bytesRead = await sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), CancellationToken.None);
-                Console.WriteLine(Encoding.UTF8.GetString(cache, 0, bytesRead.Count));
+                Console.WriteLine("Receiving:\n" + Encoding.UTF8.GetString(cache, 0, bytesRead.Count));
 
                 // Inbound INVITE
                 bytesRead = await sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), CancellationToken.None);
 
-                Console.WriteLine(Encoding.UTF8.GetString(cache, 0, bytesRead.Count));
+                Console.WriteLine("Receiving:\n" + Encoding.UTF8.GetString(cache, 0, bytesRead.Count));
                 var inviteMessage = Encoding.UTF8.GetString(cache, 0, bytesRead.Count);
                 var inviteSipMessage = SipMessage.FromMessage(inviteMessage);
+
+                if (inviteSipMessage.Subject.StartsWith("INVITE sip:"))
+                {
+                    var _sipMessage = inviteSipMessage;
+
+                    var makingOffer = false;
+                    rtcPeer.onicecandidate += (iceCandidate) =>
+                    {
+                        //try
+                        //{
+                        //    makingOffer = true;
+                        //    //rtcPeer.setLocalDescription(null);
+                        //    bytes = Encoding.UTF8.GetBytes(rtcPeer.localDescription.sdp.ToString());
+                        //    sipWebSocket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, false, CancellationToken.None).Wait();
+                        //} catch (Exception ex) {
+                        //    Console.WriteLine(ex.Message + "\n");
+                        //} finally
+                        //{
+                        //    makingOffer = false;
+                        //}
+
+                        if (rtcPeer.signalingState == RTCSignalingState.have_remote_offer)
+                        {
+                            //Context.WebSocket.Send(iceCandidate.toJSON());
+                            Console.WriteLine(iceCandidate.ToJson() + "\n");
+                            bytes = Encoding.UTF8.GetBytes(iceCandidate.ToJson());
+                            sipWebSocket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, false, CancellationToken.None).Wait();
+
+                            var bytesReadTask = sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), CancellationToken.None);
+                            bytesReadTask.Wait();
+                            bytesRead = bytesReadTask.Result;
+                            var iceResponse = Encoding.UTF8.GetString(cache, 0, bytesRead.Count);
+                            Console.WriteLine(iceResponse + "\n");
+                            var iceCandidateInit = JsonConvert.DeserializeObject<RTCIceCandidateInit>(iceResponse);
+                            rtcPeer.addIceCandidate(iceCandidateInit);
+
+                        }
+
+                        
+                    };
+
+
+                    var audioSource = new AudioExtrasSource(new AudioEncoder(), new AudioSourceOptions { AudioSource = AudioSourcesEnum.Silence });
+
+                    MediaStreamTrack audioTrack = new MediaStreamTrack(new List<AudioFormat>
+                         {new AudioFormat(SDPWellKnownMediaFormatsEnum.PCMU)}, MediaStreamStatusEnum.SendRecv);
+                    rtcPeer.addTrack(audioTrack);
+
+                    audioSource.OnAudioSinkError += (error) => { Console.WriteLine(error); };
+                    audioSource.OnSendFromAudioStreamComplete += AudioSource_OnSendFromAudioStreamComplete;
+
+                    audioSource.OnAudioSourceEncodedSample += (durationRtpUnits, sample) =>
+                    {
+                        //rtpSession.SendAudioFrame(sample);
+                        rtcPeer.SendAudio(durationRtpUnits, sample);
+                    };
+
+                    audioSource.OnAudioSourceError += (error) => { Console.WriteLine(error); };
+                   
+                    rtcPeer.onconnectionstatechange += async (state) =>
+                    {
+                        Console.WriteLine($"Peer connection state change to {state}.\n");
+
+                        if (state == RTCPeerConnectionState.connected)
+                        {
+                            await audioSource.StartAudio();
+                            // await windowsVideoEndPoint.StartVideo();
+                            // await testPatternSource.StartVideo();
+                        }
+                        else if (state == RTCPeerConnectionState.failed)
+                        {
+                            rtcPeer.Close("ice disconnection");
+                        }
+                        else if (state == RTCPeerConnectionState.closed)
+                        {
+                            //   await testPatternSource.CloseVideo();
+                            //   await windowsVideoEndPoint.CloseVideo();
+                            await audioSource.CloseAudio();
+                        }
+                    };
+
+                    await rtcPeer.Start();
+                  
+                    rtcPeer.AcceptRtpFromAny = true;
+
+                    var offerAnswer = rtcPeer.createOffer(null);
+                    await rtcPeer.setLocalDescription(offerAnswer);
+                    var result = rtcPeer.setRemoteDescription(new RTCSessionDescriptionInit
+                    {
+                        sdp = inviteSipMessage.Body,
+                        type = RTCSdpType.answer
+                    });
+
+                    rtcPeer.GetRtpChannel().OnStunMessageReceived += (msg, ep, isRelay) =>
+                    {
+                        Console.WriteLine($"STUN message received from {ep}.");
+                    };
+
+                    Console.WriteLine("Set Remote Description:\n" + result.ToString() + "\n");
+
+                    
+                    _sipMessage =
+                        new SipMessage($"MESSAGE sip:{sipInfo.domain} SIP/2.0", new Dictionary<string, string>
+                        {
+                                        {"Contact", $"<sip:{fakeEmail};transport=wss>"},
+                                        {"Content-Type", "application/sdp"},
+                                        {"Content-Length", offerAnswer.sdp.Length.ToString()},
+                                        {"User-Agent", "RingCentral.Softphone.Net"},
+                                        {"Via", inviteSipMessage.Headers["Via"]},
+                                        {"From", inviteSipMessage.Headers["From"]},
+                                        {"To", $"{inviteSipMessage.Headers["To"]};tag={Guid.NewGuid().ToString()}"},
+                                        {"CSeq", inviteSipMessage.Headers["CSeq"]},
+                                        {"Supported", "outbound"},
+                                        {"Call-Id", inviteSipMessage.Headers["Call-Id"]}
+                        }, offerAnswer.sdp);
+
+                    var strMsg = _sipMessage.ToMessage();
+                    Console.WriteLine("Sending:\n" + strMsg + "\n");
+                    bytes = Encoding.UTF8.GetBytes(strMsg);
+                    sipWebSocket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None).Wait();
+
+                }
 
                 // Now respond with Ringing message
                 var sipRingingMsg = new SipMessage($"SIP/2.0 180 Ringing", new Dictionary<string, string>
                 {
-                    {"Via", inviteSipMessage.Headers["Via"] },                    
+                    {"Via", inviteSipMessage.Headers["Via"] },
                     {"From", inviteSipMessage.Headers["To"]},
                     {"Call-Id", inviteSipMessage.Headers["Call-Id"]},
                     {"CSeq", inviteSipMessage.Headers["CSeq"]},
                     {"Contact", inviteSipMessage.Headers["Contact"] },
                     {"Supported", "outbound" },
                     {"To", inviteSipMessage.Headers["From"]},
-                    {"Content-Length", "0"},                    
+                    {"Content-Length", "0"},
                 }, "");
 
-                // write
-                var ringing_message = sipRingingMsg.ToMessage();
-                Console.WriteLine(ringing_message + "\n");
-              //  var ringmsg = $"SIP/2.0 180 Ringing\r\nVia: SIP/2.0/WSS 104.245.57.165:8083;rport;branch=z9hG4bK2h1boP-aMTQlj\r\nFrom: \"WIRELESS CALLER\" <sip:+16509999999@104.245.57.165>;tag=10.13.121.68-5070-e02ad7dc192e48\r\nCall-ID: 366abc5e1920429bb3e894f60f9388c1\r\nCSeq: 316586109 INVITE\r\nContact: <sip:fba3ccc7-f58e-4f2f-8bc3-93f6ae418fe1.invalid;transport=ws>\r\nSupported: outbound\r\nTo: \"WIRELESS CALLER\" <sip:16506666666*115@50.237.72.154>;tag=d90da9de-e261-45ec-b2cb-781e484a51de\r\nContent-Length: 0";
+                //write
+               var ringing_message = sipRingingMsg.ToMessage();
+                Console.WriteLine("Sending:\n" + ringing_message + "\n");
                 bytes = Encoding.UTF8.GetBytes(ringing_message);
                 sipWebSocket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None).Wait();
 
@@ -207,224 +343,275 @@ namespace RingCentral.Softphone.Demo
                     {"Content-Length", "0"},
                 }, "");
                 message = sipOkMsg.ToMessage();
-                Console.WriteLine(message + "\n");
+                Console.WriteLine("Sending:\n" + message + "\n");
                 bytes = Encoding.UTF8.GetBytes(message);
                 sipWebSocket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None).Wait();
 
-
-                // ACK trying
+                // Receive ACK 
                 bytesRead = await sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), CancellationToken.None);
-                Console.WriteLine(Encoding.UTF8.GetString(cache, 0, bytesRead.Count) + "\n");
+                Console.WriteLine("Receiving:\n" + Encoding.UTF8.GetString(cache, 0, bytesRead.Count) + "\n");
+                var ackMessage = Encoding.UTF8.GetString(cache, 0, bytesRead.Count);
+                var ackSipMessage = SipMessage.FromMessage(ackMessage);
 
-                // Message
-                //bytesRead = await sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), CancellationToken.None);
-                //Console.WriteLine(Encoding.UTF8.GetString(cache, 0, bytesRead.Count) + "\n");
+                // the message after we reply to INVITE
+                if (ackSipMessage.Subject.StartsWith("ACK sip:"))
+                {
+                    // The purpose of sending a DTMF tone is if our SDP had a private IP address then the server needs to get at least
+                    // one RTP packet to know where to send.
+                    //await rtcPeer.Start();
+                    await rtcPeer.SendDtmf(0, CancellationToken.None);
+                    
+                }
+                //// Message
+                bytesRead = await sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), CancellationToken.None);
+                Console.WriteLine("Receiving:\n" + Encoding.UTF8.GetString(cache, 0, bytesRead.Count) + "\n");
 
                 // Now send MESSAGE msg
-                var doc = new System.Xml.XmlDocument();
-                doc.LoadXml(inviteSipMessage.Headers["P-rc"]);
-                var toNumber = inviteSipMessage.Headers["From"].Replace("<sip:", "").Replace(">", "");
-                // find @
-                var atIndex = toNumber.IndexOf("@");
-                if (atIndex > 0)
-                {
-                    toNumber = "#"+ toNumber.Substring(0, atIndex) + "@sip.devtest.ringcentral.com:5060";
-                }
-                
-                var fromNumber = inviteSipMessage.Headers["To"].Replace("<sip:", "").Replace(">", "");
-                // find @
-                atIndex = fromNumber.IndexOf("@");
-                if (atIndex > 0)
-                {
-                    fromNumber = fromNumber.Substring(0, atIndex);
-                }
+                //var doc = new System.Xml.XmlDocument();
+                //doc.LoadXml(inviteSipMessage.Headers["P-rc"]);
+                //var toNumber = inviteSipMessage.Headers["From"].Replace("<sip:", "").Replace(">", "");
+                //// find @
+                //var atIndex = toNumber.IndexOf("@");
+                //if (atIndex > 0)
+                //{
+                //    toNumber = "#"+ toNumber.Substring(0, atIndex) + "@sip.devtest.ringcentral.com:5060";
+                //}
 
-                doc.DocumentElement.FirstChild.Attributes["To"].Value = toNumber;
+                //var fromNumber = inviteSipMessage.Headers["To"].Replace("<sip:", "").Replace(">", "");
+                //// find @
+                //atIndex = fromNumber.IndexOf("@");
+                //if (atIndex > 0)
+                //{
+                //    fromNumber = fromNumber.Substring(0, atIndex);
+                //}
 
-                doc.DocumentElement.FirstChild.Attributes["From"].Value = fromNumber;
+                //doc.DocumentElement.FirstChild.Attributes["To"].Value = toNumber;
 
-                // Set Cmd attribute to 17
-                doc.DocumentElement.FirstChild.Attributes["Cmd"].Value = "17";
+                //doc.DocumentElement.FirstChild.Attributes["From"].Value = fromNumber;
 
-                // set Req attribute to {F27BF503-9AE3-42FD-AF3C-FF74A243B317}
-                doc.DocumentElement.FirstChild.Attributes["Req"].Value = "{F27BF503-9AE3-42FD-AF3C-FF74A243B317}";
+                //// Set Cmd attribute to 17
+                //doc.DocumentElement.FirstChild.Attributes["Cmd"].Value = "17";
 
-                // clear out the body
-                doc.DocumentElement.ChildNodes[1].InnerText = "";
-                
-                // remove body attributes
-                doc.DocumentElement.ChildNodes[1].Attributes.RemoveAll();
+                //// clear out the body
+                //doc.DocumentElement.ChildNodes[1].InnerText = "";
 
-                // add Cln attribute to body
-                var cln = doc.CreateAttribute("Cln");
-                cln.Value = "802398776016";
+                //// remove body attributes
+                //doc.DocumentElement.ChildNodes[1].Attributes.RemoveAll();
 
-                doc.DocumentElement.ChildNodes[1].Attributes.Append(cln);
+                //// add Cln attribute to body
+                //var cln = doc.CreateAttribute("Cln");
+                //cln.Value = sipInfo.authorizationId;
 
-                var bodyMsg = doc.OuterXml;
-                var sipMessageMsg = new SipMessage($"MESSAGE sip:{sipInfo.domain} SIP/2.0", new Dictionary<string, string>
-                {
-                    {"From", $"<sip:{fromNumber}@sip.devtest.ringcentral.com>;tag={Guid.NewGuid().ToString()}"},
-                    {"To", $"<sip:{toNumber}@sip.devtest.ringcentral.com:5600>"},                    
-                    {"Content-Type", "x-rc/agent"},
-                    {"CSeq", "8084 MESSAGE"},
-                    {"Call-Id", inviteSipMessage.Headers["Call-Id"]},
-                    {"User-Agent", userAgent},
-                    {"Via", $"SIP/2.0/WSS {fakeDomain};branch=z9hG4bK{Guid.NewGuid().ToString()}"},
-                    {"Content-Length", bodyMsg.Length.ToString() },
-                    {"Max-Forwards", "70"},
-                }, bodyMsg);
+                //doc.DocumentElement.ChildNodes[1].Attributes.Append(cln);
 
-                // write
-                var messageMsg = sipMessageMsg.ToMessage();
-                Console.WriteLine(messageMsg + "\n");
+                //var bodyMsg = doc.OuterXml;
+                //var sipMessageMsg = new SipMessage($"MESSAGE sip:{sipInfo.domain} SIP/2.0", new Dictionary<string, string>
+                //{
+                //    {"From", $"<sip:{fromNumber}@sip.devtest.ringcentral.com>;tag={Guid.NewGuid().ToString()}"},
+                //    {"To", $"<sip:{toNumber}@sip.devtest.ringcentral.com:5600>"},                    
+                //    {"Content-Type", "x-rc/agent"},
+                //    {"CSeq", "8084 MESSAGE"},
+                //    {"Call-Id", inviteSipMessage.Headers["Call-Id"]},
+                //    {"User-Agent", userAgent},
+                //    {"Via", $"SIP/2.0/WSS {fakeDomain};branch=z9hG4bK{Guid.NewGuid().ToString()}"},
+                //    {"Content-Length", bodyMsg.Length.ToString() },
+                //    {"Max-Forwards", "70"},
+                //}, bodyMsg);
 
-                //var msgmsg = $"MESSAGE sip:#1336016@sip.ringcentral.com:5060 SIP/2.0\r\nFrom: <sip:16506666666*115@sip.ringcentral.com>;tag=a3e356b9-d9e5-4962-a4b0-6013941f821e\r\nTo: <sip:#1336016@sip.ringcentral.com:5060>\r\nContent-Type: x-rc/agent\r\nCSeq: 8084 MESSAGE\r\nCall-ID: 443c6592-4708-4f91-8bed-4af03304c24e\r\nUser-Agent: ringcentral-softphone-go\r\nVia: SIP/2.0/WSS fba3ccc7-f58e-4f2f-8bc3-93f6ae418fe1.invalid;branch=z9hG4bK0d18207a-96f5-4ff0-94f5-0908e48da9ad\r\nContent-Length: 179\r\nMax-Forwards: 70\r\n<Msg><Hdr SID=\"35488554330848\" Req=\"{{F27BF503-9AE3-42FD-AF3C-FF74A243B317}}\" From=\"16506666666*115\" To=\"#1336016@sip.ringcentral.com:5060\" Cmd=\"17\"/><Bdy Cln=\"802398776016\"/></Msg>";
-                bytes = Encoding.UTF8.GetBytes(messageMsg);
-                await sipWebSocket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
+                //// write
+                //var messageMsg = sipMessageMsg.ToMessage();
+                //Console.WriteLine("Sending:\n" + messageMsg + "\n");
 
-               
+                //// REceive 100
+                //bytesRead = await sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), CancellationToken.None);
+                //Console.WriteLine("Receiving:\n" + Encoding.UTF8.GetString(cache, 0, bytesRead.Count) + "\n");
+
+
+                //// Receive 200 Message
+                //bytesRead = await sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), CancellationToken.None);
+                //Console.WriteLine("Receiving:\n" + Encoding.UTF8.GetString(cache, 0, bytesRead.Count) + "\n");
+
+
+
+                // Send 200 OK
+                //var sipOkMsg = new SipMessage($"SIP/2.0 200 OK", new Dictionary<string, string>
+                //{
+                //    {"Via", inviteSipMessage.Headers["Via"] },
+                //    {"From", inviteSipMessage.Headers["To"]},
+                //    {"Call-Id", inviteSipMessage.Headers["Call-Id"]},
+                //    {"CSeq", inviteSipMessage.Headers["CSeq"]},
+                //    {"Contact", inviteSipMessage.Headers["Contact"] },
+                //    {"Supported", "outbound" },
+                //    {"To", inviteSipMessage.Headers["From"]},
+                //    {"Content-Length", "0"},
+                //}, "");
+                //message = sipOkMsg.ToMessage();
+                //Console.WriteLine("Sending:\n" + message + "\n");
+                //bytes = Encoding.UTF8.GetBytes(message);
+                //sipWebSocket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None).Wait();
+
+                //                bytes = Encoding.UTF8.GetBytes(messageMsg);
+                //              await sipWebSocket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
+
+
 
                 // 100 trying
                 //bytesRead = await sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), CancellationToken.None);
-                //Console.WriteLine(Encoding.UTF8.GetString(cache, 0, bytesRead.Count) + "\n");
+                //Console.WriteLine("Receiving:\n" + Encoding.UTF8.GetString(cache, 0, bytesRead.Count) + "\n");
 
-                // 200 OK
+                // ACK OK
                 //bytesRead = await sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), CancellationToken.None);
                 //Console.WriteLine(Encoding.UTF8.GetString(cache, 0, bytesRead.Count) + "\n");
 
-                Console.WriteLine("\n--------------------\n\n\tReady for RTCPeering\n-------------------\n");
+                //Console.WriteLine("\n--------------------\n\n\tReady for RTCPeering\n-------------------\n");
 
                 // RTP - use SipSocery to establish a RTP session
                 //"stun:" + sipInfo.stunServers[0]; //
-                string STUN_URL = "stun:" + sipInfo.stunServers[0];
+                //string STUN_URL = "stun:74.125.194.127:19302";
                 //"stun:74.125.194.127:19302"; // "stun:" + sipInfo.stunServers[0]; // "stun:stun.sipsorcery.com";
 
-                RTCConfiguration config = new RTCConfiguration
-                {
-                    iceServers = new List<RTCIceServer> { new RTCIceServer { urls = STUN_URL } }
-                };
-                var rtcPeer = new RTCPeerConnection(config);
+                // RTCConfiguration config = new RTCConfiguration
+                // {
+                //     iceServers = new List<RTCIceServer> { new RTCIceServer { urls = STUN_URL } }
+                // };
+                // var rtcPeer = new RTCPeerConnection(config);
 
-                var audioSource = new AudioExtrasSource(new AudioEncoder(), new AudioSourceOptions { AudioSource = AudioSourcesEnum.Silence });
+                // var audioSource = new AudioExtrasSource(new AudioEncoder(), new AudioSourceOptions { AudioSource = AudioSourcesEnum.Silence });
 
-                //RTPSession rtpSession = new RTPSession(false, false, false);
-                MediaStreamTrack audioTrack = new MediaStreamTrack(new List<AudioFormat>
-                    {new AudioFormat(SDPWellKnownMediaFormatsEnum.PCMU)}, MediaStreamStatusEnum.SendRecv );
-                //rtpSession.addTrack(audioTrack);
-                rtcPeer.addTrack(audioTrack);
+                // //RTPSession rtpSession = new RTPSession(false, false, false);
+                // MediaStreamTrack audioTrack = new MediaStreamTrack(new List<AudioFormat>
+                //     {new AudioFormat(SDPWellKnownMediaFormatsEnum.PCMU)}, MediaStreamStatusEnum.SendRecv );
+                // //rtpSession.addTrack(audioTrack);
+                // rtcPeer.addTrack(audioTrack);
 
-                audioSource.OnAudioSinkError += (error) => { Console.WriteLine(error); };
-                audioSource.OnSendFromAudioStreamComplete += AudioSource_OnSendFromAudioStreamComplete;
+                // audioSource.OnAudioSinkError += (error) => { Console.WriteLine(error); };
+                // audioSource.OnSendFromAudioStreamComplete += AudioSource_OnSendFromAudioStreamComplete;
 
-                audioSource.OnAudioSourceEncodedSample += (durationRtpUnits, sample) =>
-                {
-                    //rtpSession.SendAudioFrame(sample);
-                    rtcPeer.SendAudio(durationRtpUnits, sample);
-                };  
+                // audioSource.OnAudioSourceEncodedSample += (durationRtpUnits, sample) =>
+                // {
+                //     //rtpSession.SendAudioFrame(sample);
+                //     rtcPeer.SendAudio(durationRtpUnits, sample);
+                // };  
 
-                audioSource.OnAudioSourceError += (error) => { Console.WriteLine(error); };
+                // audioSource.OnAudioSourceError += (error) => { Console.WriteLine(error); };
 
-                rtcPeer.onconnectionstatechange += async (state) =>
-                {
-                    Console.WriteLine($"Peer connection state change to {state}.\n");
+                // rtcPeer.onconnectionstatechange += async (state) =>
+                // {
+                //     Console.WriteLine($"Peer connection state change to {state}.\n");
 
-                    if (state == RTCPeerConnectionState.connected)
-                    {
-                        await audioSource.StartAudio();
-                       // await windowsVideoEndPoint.StartVideo();
-                       // await testPatternSource.StartVideo();
-                    }
-                    else if (state == RTCPeerConnectionState.failed)
-                    {
-                        rtcPeer.Close("ice disconnection");
-                    }
-                    else if (state == RTCPeerConnectionState.closed)
-                    {
-                     //   await testPatternSource.CloseVideo();
-                     //   await windowsVideoEndPoint.CloseVideo();
-                        await audioSource.CloseAudio();
-                    }
-                };
+                //     if (state == RTCPeerConnectionState.connected)
+                //     {
+                //         await audioSource.StartAudio();
+                //        // await windowsVideoEndPoint.StartVideo();
+                //        // await testPatternSource.StartVideo();
+                //     }
+                //     else if (state == RTCPeerConnectionState.failed)
+                //     {
+                //         rtcPeer.Close("ice disconnection");
+                //     }
+                //     else if (state == RTCPeerConnectionState.closed)
+                //     {
+                //      //   await testPatternSource.CloseVideo();
+                //      //   await windowsVideoEndPoint.CloseVideo();
+                //         await audioSource.CloseAudio();
+                //     }
+                // };
 
-                await rtcPeer.Start();
+                // await rtcPeer.Start();
 
-                var offerAnswer = rtcPeer.createOffer(null);
-                await rtcPeer.setLocalDescription(offerAnswer);
+                // var offerAnswer = rtcPeer.createOffer(null);
+                // await rtcPeer.setLocalDescription(offerAnswer);
 
-                //var sdpDescription = SDP.ParseSDPDescription(inviteSipMessage.Body);
-                //if (sdpDescription == null)
-                //    sdpDescription = new SDP();
+                // //var sdpDescription = SDP.ParseSDPDescription(inviteSipMessage.Body);
+                // //if (sdpDescription == null)
+                // //    sdpDescription = new SDP();
 
-                //await Console.Out.WriteLineAsync(offerAnswer.ToJson() + "\n");
-
-
-                //Console.WriteLine(result);
-                //var answer = rtpSession.CreateAnswer(null);
-                rtcPeer.OnStarted += RtcPeer_OnStarted;
-               
-                rtcPeer.OnRtpPacketReceived += RtcPeer_OnRtpPacketReceived;
-                rtcPeer.OnRtcpBye += RtcPeer_OnRtcpBye;
-
-                // write
-                var sipRtpMsg = new SipMessage($"MESSAGE sip:{sipInfo.domain} SIP/2.0", new Dictionary<string, string>
-                {
-                    {"From", $"<sip:{fromNumber}@sip.devtest.ringcentral.com>;tag={Guid.NewGuid().ToString()}"},
-                    {"To", $"<sip:{toNumber}@sip.devtest.ringcentral.com:5600>"},
-                    {"Content-Type", "application/sdp"},
-                    {"Call-Id", Guid.NewGuid().ToString() },
-                    {"User-Agent", userAgent},
-                    {"CSeq", inviteSipMessage.Headers["CSeq"]},
-                    {"Contact", inviteSipMessage.Headers["Contact"] },
-                    {"Via", $"SIP/2.0/WSS {fakeDomain};branch=z9hG4bK{Guid.NewGuid().ToString()}"},
-                    {"Content-Length", offerAnswer.sdp.Length.ToString() },
-                    {"Supported", "outbound" },
-                    {"Max-Forwards", "70"},
-                }, offerAnswer.sdp );
-
-                message = sipRtpMsg.ToMessage();
-                Console.WriteLine(message + "\n");
-                bytes = Encoding.UTF8.GetBytes(message);
-                sipWebSocket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, false, CancellationToken.None).Wait();
-
-               
-               // await Task.Delay(1000);
-
-                // ICE
-                rtcPeer.onicecandidate += (iceCandidate) =>
-                {
-                    if (rtcPeer.signalingState == RTCSignalingState.have_remote_offer)
-                    {
-                        //Context.WebSocket.Send(iceCandidate.toJSON());
-                        Console.WriteLine(iceCandidate.ToJson() + "\n");
-                        bytes = Encoding.UTF8.GetBytes(iceCandidate.ToJson());
-                        sipWebSocket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, false, CancellationToken.None).Wait();
-
-                        var bytesReadTask = sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), CancellationToken.None);
-                        bytesReadTask.Wait();
-                        bytesRead = bytesReadTask.Result;
-                        var iceResponse = Encoding.UTF8.GetString(cache, 0, bytesRead.Count);
-                        Console.WriteLine(iceResponse + "\n");
-                        var iceCandidateInit = JsonConvert.DeserializeObject<RTCIceCandidateInit>(iceResponse);
-                        rtcPeer.addIceCandidate(iceCandidateInit);
-
-                    }
-                };
-
-                // ACK
-                bytesRead = await sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), CancellationToken.None);
-                Console.WriteLine(Encoding.UTF8.GetString(cache, 0, bytesRead.Count) + "\n");
-
-                // await Task.Delay(1000);
-                
-                // Message
-               // bytesRead = await sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), CancellationToken.None);
-                //Console.WriteLine(Encoding.UTF8.GetString(cache, 0, bytesRead.Count));
+                // //await Console.Out.WriteLineAsync(offerAnswer.ToJson() + "\n");
 
 
+                // //Console.WriteLine(result);
+                // //var answer = rtpSession.CreateAnswer(null);
+                // rtcPeer.OnStarted += RtcPeer_OnStarted;
+
+                // rtcPeer.OnRtpPacketReceived += RtcPeer_OnRtpPacketReceived;
+                // rtcPeer.OnRtcpBye += RtcPeer_OnRtcpBye;
+
+                // // write
+                // var sipRtpMsg = new SipMessage($"MESSAGE sip:{sipInfo.domain} SIP/2.0", new Dictionary<string, string>
+                // {
+                //     {"From", $"<sip:{fromNumber}@sip.devtest.ringcentral.com>;tag={Guid.NewGuid().ToString()}"},
+                //     {"To", $"<sip:{toNumber}@sip.devtest.ringcentral.com:5600>"},
+                //     {"Content-Type", "application/sdp"},
+                //     {"Call-Id", Guid.NewGuid().ToString() },
+                //     {"User-Agent", userAgent},
+                //     {"CSeq", inviteSipMessage.Headers["CSeq"]},
+                //     {"Contact", inviteSipMessage.Headers["Contact"] },
+                //     {"Via", $"SIP/2.0/WSS {fakeDomain};branch=z9hG4bK{Guid.NewGuid().ToString()}"},
+                //     {"Content-Length", offerAnswer.sdp.Length.ToString() },
+                //     {"Supported", "outbound" },
+                //     {"Max-Forwards", "70"},
+                // }, offerAnswer.sdp );
+
+                // message = sipRtpMsg.ToMessage();
+                // Console.WriteLine("Sending:\n" + message + "\n");
+                // bytes = Encoding.UTF8.GetBytes(message);
+                // sipWebSocket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, false, CancellationToken.None).Wait();
+
+
+                //// await Task.Delay(1000);
+
+                // // ICE
+                // rtcPeer.onicecandidate += (iceCandidate) =>
+                // {
+                //     if (rtcPeer.signalingState == RTCSignalingState.have_remote_offer)
+                //     {
+                //         //Context.WebSocket.Send(iceCandidate.toJSON());
+                //         Console.WriteLine(iceCandidate.ToJson() + "\n");
+                //         bytes = Encoding.UTF8.GetBytes(iceCandidate.ToJson());
+                //         sipWebSocket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, false, CancellationToken.None).Wait();
+
+                //         var bytesReadTask = sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), CancellationToken.None);
+                //         bytesReadTask.Wait();
+                //         bytesRead = bytesReadTask.Result;
+                //         var iceResponse = Encoding.UTF8.GetString(cache, 0, bytesRead.Count);
+                //         Console.WriteLine(iceResponse + "\n");
+                //         var iceCandidateInit = JsonConvert.DeserializeObject<RTCIceCandidateInit>(iceResponse);
+                //         rtcPeer.addIceCandidate(iceCandidateInit);
+
+                //     }
+                // };
+
+                // // ACK
+                // bytesRead = await sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), CancellationToken.None);
+                // Console.WriteLine("Receiving:\n" + Encoding.UTF8.GetString(cache, 0, bytesRead.Count) + "\n");
+
+                // // await Task.Delay(1000);
+
+                // // Message
+                // bytesRead = await sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), CancellationToken.None);
+                //Console.WriteLine("Receiving:\n" + Encoding.UTF8.GetString(cache, 0, bytesRead.Count) + "\n");
+
+                // // Create cancellationtoken to throw after 1 minute
+                // var cts = new CancellationTokenSource();
+                // cts.CancelAfter(60000);
+                // var cancellationToken = cts.Token;
+                // cancellationToken.Register(() => { Console.WriteLine("The operation has timed out.\n"); });
+
+                // while (bytesRead.Count > 0)
+                // {
+                //     try
+                //     {
+                //         bytesRead = await sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), cancellationToken);
+                //         Console.WriteLine("Receiving:\n" + Encoding.UTF8.GetString(cache, 0, bytesRead.Count) + "\n");
+                //     }
+                //     catch (Exception e)
+                //     {
+                //         Console.WriteLine(e.Message + "\n");                        
+                //     }
+                // }
                 // The purpose of sending a DTMF tone is if our SDP had a private IP address then the server needs to get at least
                 // one RTP packet to know where to send.
-                await rtcPeer.SendDtmf(0, CancellationToken.None);
+                //await rtcPeer.SendDtmf(0, CancellationToken.None);
 
                 // Message
                 //bytesRead = await sipWebSocket.ReceiveAsync(new ArraySegment<byte>(cache), CancellationToken.None);
