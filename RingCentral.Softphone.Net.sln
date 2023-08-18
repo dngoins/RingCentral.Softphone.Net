@@ -7,8 +7,6 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RingCentral.Softphone.Net",
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RingCentral.Softphone.Demo", "RingCentral.Softphone.Demo\RingCentral.Softphone.Demo.csproj", "{9C0E0EBA-0D86-4E40-A13D-3F9914C70129}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RingCentral.WebRTC.SignalR.API", "RingCentral.WebRTC.SignalR.API\RingCentral.WebRTC.SignalR.API.csproj", "{AC10D12E-64B3-40EC-B8E7-42B6A8215FE8}"
-EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -23,12 +21,11 @@ Global
 		{9C0E0EBA-0D86-4E40-A13D-3F9914C70129}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{9C0E0EBA-0D86-4E40-A13D-3F9914C70129}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{9C0E0EBA-0D86-4E40-A13D-3F9914C70129}.Release|Any CPU.Build.0 = Release|Any CPU
-		{AC10D12E-64B3-40EC-B8E7-42B6A8215FE8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{AC10D12E-64B3-40EC-B8E7-42B6A8215FE8}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{AC10D12E-64B3-40EC-B8E7-42B6A8215FE8}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{AC10D12E-64B3-40EC-B8E7-42B6A8215FE8}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {C53C39AC-DC40-47CA-8328-C7C1608BA2CD}
 	EndGlobalSection
 EndGlobal

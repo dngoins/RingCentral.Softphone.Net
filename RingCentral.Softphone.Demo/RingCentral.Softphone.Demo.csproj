@@ -9,7 +9,7 @@
       <PackageReference Include="dotenv.net" Version="3.1.2" />
       <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
       <PackageReference Include="RingCentral.Net" Version="6.0.0" />
-      <PackageReference Include="System.Net.WebSockets" Version="4.3.0" />
+      <PackageReference Include="Websocket.Client" Version="4.6.1" />
     </ItemGroup>
 
     <ItemGroup>
