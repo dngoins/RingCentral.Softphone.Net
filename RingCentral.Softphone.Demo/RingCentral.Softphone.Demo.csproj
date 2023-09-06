@@ -6,20 +6,21 @@
     </PropertyGroup>
 
     <ItemGroup>
-      <PackageReference Include="dotenv.net" Version="3.1.2" />
-      <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
-      <PackageReference Include="RingCentral.Net" Version="6.0.0" />
-      <PackageReference Include="Websocket.Client" Version="4.6.1" />
+        <PackageReference Include="Concentus" Version="1.1.7" />
+        <PackageReference Include="dotenv.net" Version="3.1.2" />
+        <PackageReference Include="Nager.TcpClient" Version="1.1.1" />
+        <PackageReference Include="NAudio" Version="2.2.1" />
+        <PackageReference Include="RingCentral.Net" Version="6.0.0" />
     </ItemGroup>
 
     <ItemGroup>
-      <None Update=".env">
-        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      </None>
+        <None Update=".env">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </None>
     </ItemGroup>
 
     <ItemGroup>
-      <ProjectReference Include="..\RingCentral.Softphone.Net\RingCentral.Softphone.Net.csproj" />
+        <ProjectReference Include="..\RingCentral.Softphone.Net\RingCentral.Softphone.Net.csproj" />
     </ItemGroup>
 
 </Project>
