@@ -7,19 +7,26 @@ using System.Threading;
 using System.Threading.Tasks;
 using dotenv.net;
 using Nager.TcpClient;
+using Org.BouncyCastle.Asn1.X509;
 using RingCentral.Softphone.Net;
 using SIPSorcery.Net;
 using SIPSorcery.SIP.App;
 using SIPSorceryMedia.Abstractions;
 
+using Microsoft.CognitiveServices.Speech;
+using Microsoft.CognitiveServices.Speech.Audio;
+using System.IO;
+
 namespace RingCentral.Softphone.Demo
 {
     class Program
     {
+        //static SpeechConfig config = null;
+        
         static void Main(string[] args)
         {
             DotEnv.Load(new DotEnvOptions().WithOverwriteExistingVars());
-
+            
             Task.Run(async () =>
             {
                 var sipInfo = new SipInfoResponse();
@@ -28,6 +35,8 @@ namespace RingCentral.Softphone.Demo
                 sipInfo.outboundProxy = Environment.GetEnvironmentVariable("SIP_INFO_OUTBOUND_PROXY");
                 sipInfo.authorizationId = Environment.GetEnvironmentVariable("SIP_INFO_AUTHORIZATION_ID");
                 sipInfo.username = Environment.GetEnvironmentVariable("SIP_INFO_USERNAME");
+
+               // Program.config = SpeechConfig.FromSubscription(Environment.GetEnvironmentVariable("SPEECH_SUB_KEY"), Environment.GetEnvironmentVariable("SPEECH_REGION"));
 
                 var client = new TcpClient();
                 var tokens = sipInfo.outboundProxy!.Split(":");
@@ -146,11 +155,40 @@ namespace RingCentral.Softphone.Demo
                                     SDP.ParseSDPDescription(inviteSipMessage.Body));
                             Console.WriteLine(result);
                             var answer = rtpSession.CreateAnswer(null);
+                            List<byte[]> audioBuffer = new List<byte[]>();
+
+                            var packets = 3;
+                            var framesize = 2;
 
                             rtpSession.OnRtpPacketReceived +=
                                 (IPEndPoint remoteEndPoint, SDPMediaTypesEnum mediaType, RTPPacket rtpPacket) =>
                                 {
-                                    Console.WriteLine("OnRtpPacketReceived");
+                                    //drop 3 packets
+                                    packets--;
+                                    if (packets > 0)
+                                    {
+                                        return;
+                                    }
+                                    packets = 0;
+                                    //Console.WriteLine("OnRtpPacketReceived");
+
+                                    //Let's send packets every 8000 samples (100ms) 
+                                    audioBuffer.Add(rtpPacket.Payload);
+                                    var audioBufferLength = rtpPacket.Payload.Length;
+                                    if (audioBuffer.Count == framesize)
+                                    {
+                                        var audioBufferToSend = new byte[audioBufferLength * framesize];
+                                        for (var i = 0; i < framesize; i++)
+                                        {
+                                            Buffer.BlockCopy(audioBuffer[i], 0, audioBufferToSend,
+                                                                                               i * audioBufferLength, audioBufferLength);
+                                        }
+
+                                        RecognitionWithPushAudioStreamAsync(audioBufferToSend, audioBufferLength * framesize).GetAwaiter().GetResult();   
+                                        audioBuffer.Clear();
+                                    }
+
+                                    
                                 };
 
                             sipMessage =
@@ -172,6 +210,94 @@ namespace RingCentral.Softphone.Demo
                     }
                 }
             }).GetAwaiter().GetResult();
+        }
+
+        public static async Task RecognitionWithPushAudioStreamAsync(byte[] audioBuffer, int audioBufferLength)
+        {
+           var config = SpeechConfig.FromSubscription(Environment.GetEnvironmentVariable("SPEECH_SUB_KEY"), Environment.GetEnvironmentVariable("SPEECH_REGION"));
+
+            var stopRecognition = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            // Create a push stream
+            using (var pushStream = AudioInputStream.CreatePushStream())
+            {
+                using (var audioInput = AudioConfig.FromStreamInput(pushStream))
+                {
+                    // Creates a speech recognizer using audio stream input.
+                    using (var recognizer = new SpeechRecognizer(config, audioInput))
+                    {
+                        // Subscribes to events.
+                        recognizer.Recognizing += (s, e) =>
+                        {
+                            Console.WriteLine($"RECOGNIZING: Text={e.Result.Text}");
+                        };
+
+                        recognizer.Recognized += (s, e) =>
+                        {
+                            if (e.Result.Reason == ResultReason.RecognizedSpeech)
+                            {
+                                Console.WriteLine($"RECOGNIZED: Text={e.Result.Text}");
+                            }
+                            else if (e.Result.Reason == ResultReason.NoMatch)
+                            {
+                                Console.WriteLine($"NOMATCH: Speech could not be recognized.");
+                            }
+                        };
+
+                        recognizer.Canceled += (s, e) =>
+                        {
+                            Console.WriteLine($"CANCELED: Reason={e.Reason}");
+
+                            if (e.Reason == CancellationReason.Error)
+                            {
+                                Console.WriteLine($"CANCELED: ErrorCode={e.ErrorCode}");
+                                Console.WriteLine($"CANCELED: ErrorDetails={e.ErrorDetails}");
+                                Console.WriteLine($"CANCELED: Did you update the subscription info?");
+                            }
+
+                            stopRecognition.TrySetResult(0);
+                        };
+
+                        recognizer.SessionStarted += (s, e) =>
+                        {
+                            Console.WriteLine("\nSession started event.");
+                        };
+
+                        recognizer.SessionStopped += (s, e) =>
+                        {
+                            Console.WriteLine("\nSession stopped event.");
+                            Console.WriteLine("\nStop recognition.");
+                            stopRecognition.TrySetResult(0);
+                        };
+
+                        // Starts continuous recognition. Uses StopContinuousRecognitionAsync() to stop recognition.
+                        await recognizer.StartContinuousRecognitionAsync().ConfigureAwait(false);
+
+                        // open and read the wave file and push the buffers into the recognizer
+                        using (BinaryAudioStreamReader reader = new BinaryAudioStreamReader(new MemoryStream(audioBuffer, 0, audioBufferLength)))
+                        {
+                            byte[] buffer = new byte[1000];
+                            while (true)
+                            {
+                                var readSamples = reader.Read(buffer, (uint)buffer.Length);
+                                if (readSamples == 0)
+                                {
+                                    break;
+                                }
+                                pushStream.Write(buffer, readSamples);
+                            }
+                        }
+                        pushStream.Close();
+
+                        // Waits for completion.
+                        // Use Task.WaitAny to keep the task rooted.
+                        Task.WaitAny(new[] { stopRecognition.Task });
+
+                        // Stops recognition.
+                        await recognizer.StopContinuousRecognitionAsync().ConfigureAwait(false);
+                    }
+                }
+            }
         }
     }
 }
