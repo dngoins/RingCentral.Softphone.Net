@@ -342,7 +342,7 @@ namespace RingCentral.Softphone.Demo
 
 
                 //var wfreader = new WaveFileReader("C:\\Users\\dngoi\\Downloads\\test.wav");
-                WaveFileWriter.CreateWaveFile("C:\\Users\\dngoi\\Downloads\\test.wav", resampler);
+                WaveFileWriter.CreateWaveFile("Calllog.wav", resampler);
                 rs.Position = 0;
 
                 WaveFileWriter.WriteWavFileToStream(wms, resampler);
