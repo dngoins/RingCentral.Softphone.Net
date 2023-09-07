@@ -11,9 +11,6 @@ using RingCentral.Softphone.Net;
 using SIPSorcery.Net;
 using SIPSorcery.SIP.App;
 using SIPSorceryMedia.Abstractions;
-using NAudio.Wave;
-using System.IO;
-using Concentus.Structs;
 
 namespace RingCentral.Softphone.Demo
 {
@@ -150,38 +147,10 @@ namespace RingCentral.Softphone.Demo
                             Console.WriteLine(result);
                             var answer = rtpSession.CreateAnswer(null);
 
-                            rtpSession.OnRtpPacketReceived +=                            
+                            rtpSession.OnRtpPacketReceived +=
                                 (IPEndPoint remoteEndPoint, SDPMediaTypesEnum mediaType, RTPPacket rtpPacket) =>
                                 {
-                                    Console.WriteLine("OnRtpPacketReceived: " + mediaType);
-                                    byte[] audioData = rtpPacket.Payload;
-
-                                    //convert the audioData OPUS Audio stream to a WAV format
-
-                                    //Assuming you have `NAudio` package installed, you can convert using the following code snippet
-
-                                    //decoding the raw Opus audio stream to a WAV format
-                                    using (var opusStream = new MemoryStream(audioData))
-                                    {
-                                        var decoder = new OpusDecoder(48000, 1);
-                                        using (var output = new MemoryStream())
-                                        using (var writer = new WaveFileWriter(output, new WaveFormat(48000, 16, 1)))
-                                        {
-                                            var buffer = new float[rtpPacket.Header.PayloadSize];
-                                            int decodedBytes;
-                                            while ((decodedBytes = decoder.Decode(audioData, 0, buffer.Length, buffer, 0, 8000)) > 0)
-                                            {
-                                                byte[] byteArray = new byte[4 * buffer.Length];
-                                                Buffer.BlockCopy(buffer, 0, byteArray, 0, byteArray.Length);
-
-                                                writer.Write( byteArray, 0, decodedBytes);
-                                            }
-                                            writer.Flush();
-                                            audioData = output.ToArray();
-                                            //now the audioData is in WAV format
-                                        }
-                                    }          
-
+                                    Console.WriteLine("OnRtpPacketReceived");
                                 };
 
                             sipMessage =
