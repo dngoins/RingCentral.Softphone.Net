@@ -10,6 +10,7 @@
         <PackageReference Include="Microsoft.CognitiveServices.Speech" Version="1.32.1" />
         <PackageReference Include="Nager.TcpClient" Version="1.1.1" />
         <PackageReference Include="NAudio" Version="2.2.1" />
+        <PackageReference Include="NAudio.Lame" Version="2.1.0" />
         <PackageReference Include="RingCentral.Net" Version="6.0.0" />
     </ItemGroup>
 

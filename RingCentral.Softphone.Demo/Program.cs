@@ -159,8 +159,8 @@ namespace RingCentral.Softphone.Demo
                             var answer = rtpSession.CreateAnswer(null);
                             List<byte[]> audioBuffers = new List<byte[]>();
 
-                            var packets = 20;
-                            var framesize = 330;
+                            var packets = 5;
+                            var framesize = 250;
 
                             rtpSession.OnRtpPacketReceived +=
                                 (IPEndPoint remoteEndPoint, SDPMediaTypesEnum mediaType, RTPPacket rtpPacket) =>
@@ -188,23 +188,24 @@ namespace RingCentral.Softphone.Demo
                                         }
 
                                         audioBufferToSend = ResampleAudioStream(audioBufferToSend);
-                                  //      // Create a byte array to store the little-endian converted audio buffer
-                                  //      byte[] littleEndianBuffer = new byte[audioBufferToSend.Length];
+                                       
+                                        //      // Create a byte array to store the little-endian converted audio buffer
+                                        //byte[] littleEndianBuffer = new byte[audioBufferToSend.Length];
 
-                                  //      // Convert each pair of bytes in the audio buffer to little-endian and store in the new buffer
-                                  //      for (int i = 0; i < audioBufferToSend.Length; i += 2)
-                                  //      {
-                                  //          littleEndianBuffer[i] = audioBufferToSend[i + 1];
-                                  //          littleEndianBuffer[i + 1] = audioBufferToSend[i];
-                                  //      }
+                                        //// Convert each pair of bytes in the audio buffer to little-endian and store in the new buffer
+                                        //for (int i = 0; i < audioBufferToSend.Length; i += 2)
+                                        //{
+                                        //    littleEndianBuffer[i] = audioBufferToSend[i + 1];
+                                        //    littleEndianBuffer[i + 1] = audioBufferToSend[i];
+                                        //}
 
-                                  //      // Use the little - endian converted buffer for recognition
+                                        //// Use the little - endian converted buffer for recognition
 
 
-                                  //audioBufferToSend = ResampleAudioStream(littleEndianBuffer);
+                                        //audioBufferToSend = ResampleAudioStream(littleEndianBuffer);
 
-                                  //RecognitionWithPushAudioStreamAsync(littleEndianBuffer, littleEndianBuffer.Length).GetAwaiter().GetResult();
-                                  if ( audioBufferToSend != null)
+                                        //RecognitionWithPushAudioStreamAsync(littleEndianBuffer, littleEndianBuffer.Length).GetAwaiter().GetResult();
+                                        if ( audioBufferToSend != null)
                                     RecognitionWithPushAudioStreamAsync(audioBufferToSend, audioBufferToSend.Length).GetAwaiter().GetResult();   
                                         audioBuffers.Clear();
                                     }
@@ -331,48 +332,45 @@ namespace RingCentral.Softphone.Demo
         {
             byte[] readBytes = null;
             try
-            {              
+            {
 
-                using MemoryStream ms = new MemoryStream(audioChunk);
-                var rs = new RawSourceWaveStream(ms, new WaveFormat(8000, 4, 1));
-                var outFormat = new WaveFormat(16000, 16, 1);
-                using var resampler = new MediaFoundationResampler(rs, outFormat);
+                using (MemoryStream ms = new MemoryStream(audioChunk))
+                {
+                    using (var rs = new RawSourceWaveStream(ms, new WaveFormat(8000, 8, 1)))
+                    {
+                        var wavOutFormat = new WaveFormat(16000, 16, 2);
+                        var speechOutFormat = new WaveFormat(16000, 16, 1);
+
+                        using (var resampler = new MediaFoundationResampler(rs, speechOutFormat))
+                        {
+                            resampler.ResamplerQuality = 60;
+                            using (MemoryStream wms = new MemoryStream())
+                            {
+                                WaveFileWriter.WriteWavFileToStream(wms, resampler);
+                                
+                                var reader = new BinaryReader(wms);
+                                readBytes = new byte[wms.Length];
+                                readBytes = reader.ReadBytes((int)wms.Length);
+                                rs.Position = 0;
+                            }
+                        }
+                        // Need to convert the wave file to MP3 to play in the browser.
+
+                        using (var wavOutSampler = new MediaFoundationResampler(rs, wavOutFormat))
+                        {
+                            DateTime date = DateTime.UtcNow;
+                            WaveFileWriter.CreateWaveFile($"Calllog-{date.ToString("ddMMyyyy-HHmmss")}.wav", wavOutSampler);
+
+                        }
+
+                    }
+                }              
                 
-                using MemoryStream wms = new MemoryStream();
-
-
-                //var wfreader = new WaveFileReader("C:\\Users\\dngoi\\Downloads\\test.wav");
-                WaveFileWriter.CreateWaveFile("Calllog.wav", resampler);
-                rs.Position = 0;
-
-                WaveFileWriter.WriteWavFileToStream(wms, resampler);
-                
-
-                //wfreader.ReadAsync(readBytes, 0, (int)wfreader.Length).GetAwaiter().GetResult();
-
-                var reader = new BinaryReader(wms);
-                readBytes = new byte[wms.Length];
-                readBytes = reader.ReadBytes((int)wms.Length);
-
-                //wms.Position = 0;
-                //resampler.Reposition();
-                //WaveFileWriter.CreateWaveFile("C:\\Users\\dngoi\\Downloads\\test.wav", resampler);
-
-                //System.IO.FileStream fileStream = new FileStream("C:\\Users\\dngoi\\Downloads\\test.wav", FileMode.OpenOrCreate);
-                //do
-                //{
-                //    readBytes = reader.ReadBytes(1024);
-                //    fileStream.Write(readBytes, 0, readBytes.Length);
-                //} while (readBytes.Length > 0);
-
-                //fileStream.Close();
-
-
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Send Audio Stream Error: {ex.Message}");
-            }
+            }            
             return readBytes;
         }
 
