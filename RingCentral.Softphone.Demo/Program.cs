@@ -158,7 +158,7 @@ namespace RingCentral.Softphone.Demo
                             List<byte[]> audioBuffer = new List<byte[]>();
 
                             var packets = 3;
-                            var framesize = 2;
+                            var framesize = 100;
 
                             rtpSession.OnRtpPacketReceived +=
                                 (IPEndPoint remoteEndPoint, SDPMediaTypesEnum mediaType, RTPPacket rtpPacket) =>
@@ -175,6 +175,8 @@ namespace RingCentral.Softphone.Demo
                                     //Let's send packets every 8000 samples (100ms) 
                                     audioBuffer.Add(rtpPacket.Payload);
                                     var audioBufferLength = rtpPacket.Payload.Length;
+                                   // System.Diagnostics.Debug.WriteLine($"audioBufferLength: {audioBufferLength}");
+
                                     if (audioBuffer.Count == framesize)
                                     {
                                         var audioBufferToSend = new byte[audioBufferLength * framesize];
@@ -184,7 +186,20 @@ namespace RingCentral.Softphone.Demo
                                                                                                i * audioBufferLength, audioBufferLength);
                                         }
 
-                                        RecognitionWithPushAudioStreamAsync(audioBufferToSend, audioBufferLength * framesize).GetAwaiter().GetResult();   
+                                        // Create a byte array to store the little-endian converted audio buffer
+                                        byte[] littleEndianBuffer = new byte[audioBufferToSend.Length];
+
+                                        // Convert each pair of bytes in the audio buffer to little-endian and store in the new buffer
+                                        for (int i = 0; i < audioBufferToSend.Length; i += 2)
+                                        {
+                                            littleEndianBuffer[i] = audioBufferToSend[i + 1];
+                                            littleEndianBuffer[i + 1] = audioBufferToSend[i];
+                                        }
+
+                                        // Use the little-endian converted buffer for recognition
+                                        RecognitionWithPushAudioStreamAsync(littleEndianBuffer, littleEndianBuffer.Length).GetAwaiter().GetResult();
+
+                                       // RecognitionWithPushAudioStreamAsync(audioBufferToSend, audioBufferLength * framesize).GetAwaiter().GetResult();   
                                         audioBuffer.Clear();
                                     }
 
