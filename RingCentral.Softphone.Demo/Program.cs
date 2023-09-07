@@ -150,7 +150,7 @@ namespace RingCentral.Softphone.Demo
                             latestSession = rtpSession;
                             var inviteSipMessage = sipMessage;
                             MediaStreamTrack audioTrack = new MediaStreamTrack(new List<AudioFormat>
-                                {new AudioFormat(SDPWellKnownMediaFormatsEnum.PCMA)});
+                                {new AudioFormat(SDPWellKnownMediaFormatsEnum.PCMU)});
                             rtpSession.addTrack(audioTrack);
                             var result =
                                 rtpSession.SetRemoteDescription(SdpType.offer,
@@ -204,8 +204,8 @@ namespace RingCentral.Softphone.Demo
                                   //audioBufferToSend = ResampleAudioStream(littleEndianBuffer);
 
                                   //RecognitionWithPushAudioStreamAsync(littleEndianBuffer, littleEndianBuffer.Length).GetAwaiter().GetResult();
-
-                                  RecognitionWithPushAudioStreamAsync(audioBufferToSend, audioBufferToSend.Length).GetAwaiter().GetResult();   
+                                  if ( audioBufferToSend != null)
+                                    RecognitionWithPushAudioStreamAsync(audioBufferToSend, audioBufferToSend.Length).GetAwaiter().GetResult();   
                                         audioBuffers.Clear();
                                     }
 
