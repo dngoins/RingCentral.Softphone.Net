@@ -16,6 +16,8 @@ using SIPSorceryMedia.Abstractions;
 using Microsoft.CognitiveServices.Speech;
 using Microsoft.CognitiveServices.Speech.Audio;
 using System.IO;
+using NAudio.Wave;
+using SIPSorcery.net.RTP;
 
 namespace RingCentral.Softphone.Demo
 {
@@ -148,17 +150,17 @@ namespace RingCentral.Softphone.Demo
                             latestSession = rtpSession;
                             var inviteSipMessage = sipMessage;
                             MediaStreamTrack audioTrack = new MediaStreamTrack(new List<AudioFormat>
-                                {new AudioFormat(SDPWellKnownMediaFormatsEnum.PCMU)});
+                                {new AudioFormat(SDPWellKnownMediaFormatsEnum.PCMA)});
                             rtpSession.addTrack(audioTrack);
                             var result =
                                 rtpSession.SetRemoteDescription(SdpType.offer,
                                     SDP.ParseSDPDescription(inviteSipMessage.Body));
                             Console.WriteLine(result);
                             var answer = rtpSession.CreateAnswer(null);
-                            List<byte[]> audioBuffer = new List<byte[]>();
+                            List<byte[]> audioBuffers = new List<byte[]>();
 
-                            var packets = 3;
-                            var framesize = 100;
+                            var packets = 20;
+                            var framesize = 330;
 
                             rtpSession.OnRtpPacketReceived +=
                                 (IPEndPoint remoteEndPoint, SDPMediaTypesEnum mediaType, RTPPacket rtpPacket) =>
@@ -171,36 +173,40 @@ namespace RingCentral.Softphone.Demo
                                     }
                                     packets = 0;
                                     //Console.WriteLine("OnRtpPacketReceived");
-
-                                    //Let's send packets every 8000 samples (100ms) 
-                                    audioBuffer.Add(rtpPacket.Payload);
+                                                                       
+                                    audioBuffers.Add(rtpPacket.Payload);
                                     var audioBufferLength = rtpPacket.Payload.Length;
                                    // System.Diagnostics.Debug.WriteLine($"audioBufferLength: {audioBufferLength}");
 
-                                    if (audioBuffer.Count == framesize)
+                                    if (audioBuffers.Count == framesize)
                                     {
                                         var audioBufferToSend = new byte[audioBufferLength * framesize];
                                         for (var i = 0; i < framesize; i++)
                                         {
-                                            Buffer.BlockCopy(audioBuffer[i], 0, audioBufferToSend,
+                                            Buffer.BlockCopy(audioBuffers[i], 0, audioBufferToSend,
                                                                                                i * audioBufferLength, audioBufferLength);
                                         }
 
-                                        // Create a byte array to store the little-endian converted audio buffer
-                                        byte[] littleEndianBuffer = new byte[audioBufferToSend.Length];
+                                        audioBufferToSend = ResampleAudioStream(audioBufferToSend);
+                                  //      // Create a byte array to store the little-endian converted audio buffer
+                                  //      byte[] littleEndianBuffer = new byte[audioBufferToSend.Length];
 
-                                        // Convert each pair of bytes in the audio buffer to little-endian and store in the new buffer
-                                        for (int i = 0; i < audioBufferToSend.Length; i += 2)
-                                        {
-                                            littleEndianBuffer[i] = audioBufferToSend[i + 1];
-                                            littleEndianBuffer[i + 1] = audioBufferToSend[i];
-                                        }
+                                  //      // Convert each pair of bytes in the audio buffer to little-endian and store in the new buffer
+                                  //      for (int i = 0; i < audioBufferToSend.Length; i += 2)
+                                  //      {
+                                  //          littleEndianBuffer[i] = audioBufferToSend[i + 1];
+                                  //          littleEndianBuffer[i + 1] = audioBufferToSend[i];
+                                  //      }
 
-                                        // Use the little-endian converted buffer for recognition
-                                        RecognitionWithPushAudioStreamAsync(littleEndianBuffer, littleEndianBuffer.Length).GetAwaiter().GetResult();
+                                  //      // Use the little - endian converted buffer for recognition
 
-                                       // RecognitionWithPushAudioStreamAsync(audioBufferToSend, audioBufferLength * framesize).GetAwaiter().GetResult();   
-                                        audioBuffer.Clear();
+
+                                  //audioBufferToSend = ResampleAudioStream(littleEndianBuffer);
+
+                                  //RecognitionWithPushAudioStreamAsync(littleEndianBuffer, littleEndianBuffer.Length).GetAwaiter().GetResult();
+
+                                  RecognitionWithPushAudioStreamAsync(audioBufferToSend, audioBufferToSend.Length).GetAwaiter().GetResult();   
+                                        audioBuffers.Clear();
                                     }
 
                                     
@@ -245,10 +251,13 @@ namespace RingCentral.Softphone.Demo
                         recognizer.Recognizing += (s, e) =>
                         {
                             Console.WriteLine($"RECOGNIZING: Text={e.Result.Text}");
+                            Console.WriteLine($"Reason: {e.Result.Reason}");
                         };
 
                         recognizer.Recognized += (s, e) =>
                         {
+                            Console.WriteLine($"Reason: {e.Result.Reason}");
+
                             if (e.Result.Reason == ResultReason.RecognizedSpeech)
                             {
                                 Console.WriteLine($"RECOGNIZED: Text={e.Result.Text}");
@@ -276,13 +285,16 @@ namespace RingCentral.Softphone.Demo
                         recognizer.SessionStarted += (s, e) =>
                         {
                             Console.WriteLine("\nSession started event.");
+
                         };
 
                         recognizer.SessionStopped += (s, e) =>
                         {
                             Console.WriteLine("\nSession stopped event.");
                             Console.WriteLine("\nStop recognition.");
-                            stopRecognition.TrySetResult(0);
+                           // stopRecognition.TrySetResult(0);
+                            Console.WriteLine("\nStop Reason: " + e);
+
                         };
 
                         // Starts continuous recognition. Uses StopContinuousRecognitionAsync() to stop recognition.
@@ -309,10 +321,60 @@ namespace RingCentral.Softphone.Demo
                         Task.WaitAny(new[] { stopRecognition.Task });
 
                         // Stops recognition.
-                        await recognizer.StopContinuousRecognitionAsync().ConfigureAwait(false);
+                      //  await recognizer.StopContinuousRecognitionAsync().ConfigureAwait(false);
                     }
                 }
             }
         }
+
+        private static byte[] ResampleAudioStream(byte[] audioChunk)
+        {
+            byte[] readBytes = null;
+            try
+            {              
+
+                using MemoryStream ms = new MemoryStream(audioChunk);
+                var rs = new RawSourceWaveStream(ms, new WaveFormat(8000, 4, 1));
+                var outFormat = new WaveFormat(16000, 16, 1);
+                using var resampler = new MediaFoundationResampler(rs, outFormat);
+                
+                using MemoryStream wms = new MemoryStream();
+
+
+                //var wfreader = new WaveFileReader("C:\\Users\\dngoi\\Downloads\\test.wav");
+                WaveFileWriter.CreateWaveFile("C:\\Users\\dngoi\\Downloads\\test.wav", resampler);
+                rs.Position = 0;
+
+                WaveFileWriter.WriteWavFileToStream(wms, resampler);
+                
+
+                //wfreader.ReadAsync(readBytes, 0, (int)wfreader.Length).GetAwaiter().GetResult();
+
+                var reader = new BinaryReader(wms);
+                readBytes = new byte[wms.Length];
+                readBytes = reader.ReadBytes((int)wms.Length);
+
+                //wms.Position = 0;
+                //resampler.Reposition();
+                //WaveFileWriter.CreateWaveFile("C:\\Users\\dngoi\\Downloads\\test.wav", resampler);
+
+                //System.IO.FileStream fileStream = new FileStream("C:\\Users\\dngoi\\Downloads\\test.wav", FileMode.OpenOrCreate);
+                //do
+                //{
+                //    readBytes = reader.ReadBytes(1024);
+                //    fileStream.Write(readBytes, 0, readBytes.Length);
+                //} while (readBytes.Length > 0);
+
+                //fileStream.Close();
+
+
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Send Audio Stream Error: {ex.Message}");
+            }
+            return readBytes;
+        }
+
     }
 }
