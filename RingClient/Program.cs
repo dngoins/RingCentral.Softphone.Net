@@ -328,3 +328,14 @@ namespace Supervision_Demo
         }
     }
 }
+
+/*
+
+//TODO: Concatenate the Recognized Text as 1 complete long text to send to the Summary API
+//TODO: listen for Alvaria events - Login, Logout, StartCall, EndCall and Update
+//TODO: When Login event occurrs start the supervisor listening code
+//TODO: when the StartCallevent occurs start submit the RingCental request to get a phone call on supervisor softphone
+    then record the audio stream 
+
+
+*/

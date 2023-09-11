@@ -24,6 +24,7 @@ namespace RingCentral.Softphone.Demo
     class Program
     {
         //static SpeechConfig config = null;
+        static StringBuilder recognizedText = new StringBuilder();
         
         static void Main(string[] args)
         {
@@ -262,6 +263,8 @@ namespace RingCentral.Softphone.Demo
                             if (e.Result.Reason == ResultReason.RecognizedSpeech)
                             {
                                 Console.WriteLine($"RECOGNIZED: Text={e.Result.Text}");
+                                recognizedText.Append(e.Result.Text);
+                                recognizedText.Append(" ");
                             }
                             else if (e.Result.Reason == ResultReason.NoMatch)
                             {
