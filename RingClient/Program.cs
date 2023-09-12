@@ -46,7 +46,7 @@ namespace Supervision_Demo
             var SUPERVISOR_GROUP_NAME = Environment.GetEnvironmentVariable("PROD1_SUPERVISOR_GROUP_NAME");
             Supervision_Demo.MainClass.SUPERVISOR_GROUP_NAME = SUPERVISOR_GROUP_NAME;
 
-            Console.WriteLine("Start running!");
+          //  Console.WriteLine("Start running!");
             try
             {
                 // Instantiate the SDK
@@ -113,7 +113,7 @@ namespace Supervision_Demo
 
         static async Task StartWebSocketNotification()
         {
-            Console.WriteLine("StartWebSocketNotification");
+         //   Console.WriteLine("StartWebSocketNotification");
             try
             {
                 string[] eventFilters = new string[monitoredAgents.Count];
@@ -129,13 +129,13 @@ namespace Supervision_Demo
                     await parseNotificationEvent(message);
 
                 });
-                Console.WriteLine("Created");
-                Console.WriteLine(subscription.SubscriptionInfo.id);
-                Console.WriteLine("Subscribed");
+           //     Console.WriteLine("Created");
+            //    Console.WriteLine(subscription.SubscriptionInfo.id);
+             //   Console.WriteLine("Subscribed");
 
                 while (true)
                 {
-                    Console.WriteLine("looping ...");
+              //      Console.WriteLine("looping ...");
                     await Task.Delay(20000);
                     //await readSubscription();
                 }
@@ -160,13 +160,13 @@ namespace Supervision_Demo
                         if (party.status.code == "Proceeding")
                         {
                             agent.status = "Ringing";
-                            Console.WriteLine("Ringing");
+                //            Console.WriteLine("Ringing");
                         }
                         else if (party.status.code == "Answered")
                         {
-                            Console.WriteLine("Answered");
+                //            Console.WriteLine("Answered");
                             agent.status = "Connected";
-                            Console.WriteLine(jsonObj.body.telephonySessionId.ToString());
+                         //   Console.WriteLine(jsonObj.body.telephonySessionId.ToString());
                             if (superviseSession == false)
                             {
                                 await getCallSessionInfo(jsonObj.body.telephonySessionId.ToString(), agent.id);
@@ -182,24 +182,24 @@ namespace Supervision_Demo
                         else if (party.status.code == "Disconnected")
                         {
                             agent.status = "Idle";
-                            Console.WriteLine("Idle");
+                  //          Console.WriteLine("Idle");
                         }
                         else if (party.status.code == "Gone")
                         {
-                            Console.WriteLine("Transfer Gone");
+                 //           Console.WriteLine("Transfer Gone");
                         }
                     }
                 }
                 else
                 {
-                    Console.WriteLine("Not a monitored extension: " + party.extensionId.ToString());
+                 //   Console.WriteLine("Not a monitored extension: " + party.extensionId.ToString());
                 }
             }
         }
 
         static async Task submitSessionSuperviseRequest(string telSessionId, string extensionId)
         {
-            Console.WriteLine("Request supervise call session.");
+           // Console.WriteLine("Request supervise call session.");
             if (supervisorDeviceId != "")
             {
                 try
@@ -212,7 +212,7 @@ namespace Supervision_Demo
                     };
 
                     var resp = await restClient.Restapi().Account().Telephony().Sessions(telSessionId).Supervise().Post(bodyParams);
-                    Console.WriteLine("POST supervise succeeded");
+             //       Console.WriteLine("POST supervise succeeded");
                 }
                 catch (Exception ex)
                 {
@@ -221,20 +221,20 @@ namespace Supervision_Demo
             }
             else
             {
-                Console.WriteLine("No supervisor's device Id");
+             //   Console.WriteLine("No supervisor's device Id");
             }
         }
 
         static private async Task getCallSessionInfo(string telSessionId, string agentId)
         {
-            Console.WriteLine("getCallSessionInfo");
+           // Console.WriteLine("getCallSessionInfo");
             CallSessionObject jsonObj = await restClient.Restapi().Account().Telephony().Sessions(telSessionId).Get();
             foreach (var party in jsonObj.parties)
             {
                 Console.WriteLine(JsonConvert.SerializeObject(party));
                 if (party.status.code == "Disconnected")
                 {
-                    Console.WriteLine("This party got disconnected => Cannot supervised" + party.id);
+             //       Console.WriteLine("This party got disconnected => Cannot supervised" + party.id);
                 }
                 else if (party.status.code == "Answered")
                 {
@@ -246,8 +246,8 @@ namespace Supervision_Demo
 
         static async Task submitPartySuperviseRequest(string telSessionId, string partyId, string extensionId)
         {
-            Console.WriteLine("Request supervise call parties.");
-            Console.WriteLine("Party id: " + partyId);
+           // Console.WriteLine("Request supervise call parties.");
+           // Console.WriteLine("Party id: " + partyId);
             if (supervisorDeviceId != "")
             {
                 try
@@ -260,7 +260,7 @@ namespace Supervision_Demo
                     };
 
                     var resp = await restClient.Restapi().Account().Telephony().Sessions(telSessionId).Parties(partyId).Supervise().Post(bodyParams);
-                    Console.WriteLine("POST supervise succeeded");
+             //       Console.WriteLine("POST supervise succeeded");
                 }
                 catch (Exception ex)
                 {
@@ -269,7 +269,7 @@ namespace Supervision_Demo
             }
             else
             {
-                Console.WriteLine("No supervisor's device Id");
+               // Console.WriteLine("No supervisor's device Id");
             }
         }
 
@@ -278,9 +278,9 @@ namespace Supervision_Demo
             try
             {
                 var resp = await restClient.Restapi().Subscription().List();
-                Console.WriteLine("==========");
-                Console.WriteLine(JsonConvert.SerializeObject(resp));
-                Console.WriteLine("==========");
+               // Console.WriteLine("==========");
+               // Console.WriteLine(JsonConvert.SerializeObject(resp));
+               // Console.WriteLine("==========");
             }
             catch (Exception ex)
             {
@@ -301,7 +301,7 @@ namespace Supervision_Demo
                     if (record.name == SUPERVISOR_PHONE_NAME)
                     {
                         supervisorDeviceId = record.id;
-                        Console.WriteLine("Device status:", record.status);
+                 //       Console.WriteLine("Device status:", record.status);
                         await get_device_sip_info(record.id);
                         break;
                     }
@@ -319,7 +319,7 @@ namespace Supervision_Demo
                 var resp = await restClient.Restapi().Account().Device(id).Get();
                 var respStr = JsonConvert.SerializeObject(resp);
                 dynamic respObj = JsonConvert.DeserializeObject(respStr);
-                Console.WriteLine(respObj);
+               // Console.WriteLine(respObj);
             }
             catch (Exception e)
             {
@@ -331,11 +331,14 @@ namespace Supervision_Demo
 
 /*
 
-//TODO: Concatenate the Recognized Text as 1 complete long text to send to the Summary API
+//TODO: send to the Summary API - need conversationId, customer account number, client id, call direction (Inbound,outbound)
 //TODO: listen for Alvaria events - Login, Logout, StartCall, EndCall and Update
 //TODO: When Login event occurrs start the supervisor listening code
 //TODO: when the StartCallevent occurs start submit the RingCental request to get a phone call on supervisor softphone
-    then record the audio stream 
-
+    then record the audio stream and get transcription 
+//TODO: When the EndCall event occurs stop the recording and transcription and send to Summary API
+//TODO: When the Logout event occurs stop the supervisor listening code
+//TODO: when Update occurs do nothing (for the time being)
+//TODO: Write unit tests
 
 */

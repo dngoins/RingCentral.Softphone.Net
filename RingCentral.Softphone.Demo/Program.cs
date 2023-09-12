@@ -18,11 +18,16 @@ using Microsoft.CognitiveServices.Speech.Audio;
 using System.IO;
 using NAudio.Wave;
 using SIPSorcery.net.RTP;
+using TinyJson;
+using Newtonsoft;
+using Newtonsoft.Json;
 
 namespace RingCentral.Softphone.Demo
 {
     class Program
     {
+        // https://jmfamilysetfgenerativeaicallsummarizer20230912113534.azurewebsites.net/api/v1/callsummarizer
+
         //static SpeechConfig config = null;
         static StringBuilder recognizedText = new StringBuilder();
         
@@ -69,7 +74,7 @@ namespace RingCentral.Softphone.Demo
                 void OnDataReceived(byte[] receivedData)
                 {
                     var data = Encoding.UTF8.GetString(receivedData);
-                    Console.WriteLine("Receiving...\n" + data);
+//                    Console.WriteLine("Receiving...\n" + data);
                     cachedMessages += data;
                 }
 
@@ -79,7 +84,7 @@ namespace RingCentral.Softphone.Demo
                 async void SendMessage(SipMessage sipMessage)
                 {
                     var message = sipMessage.ToMessage();
-                    Console.WriteLine("Sending...\n" + message);
+  //                  Console.WriteLine("Sending...\n" + message);
                     var bytes = Encoding.UTF8.GetBytes(message);
                     await client.SendAsync(bytes);
                 }
@@ -156,7 +161,7 @@ namespace RingCentral.Softphone.Demo
                             var result =
                                 rtpSession.SetRemoteDescription(SdpType.offer,
                                     SDP.ParseSDPDescription(inviteSipMessage.Body));
-                            Console.WriteLine(result);
+    //                        Console.WriteLine(result);
                             var answer = rtpSession.CreateAnswer(null);
                             List<byte[]> audioBuffers = new List<byte[]>();
 
@@ -230,9 +235,69 @@ namespace RingCentral.Softphone.Demo
                                 }, answer.ToString());
                             SendMessage(sipMessage);
                         }
+
+                        // For DEMO Only
+#if DEBUG_DEMO
+                        if (sipMessage.Subject.StartsWith("BYE"))
+                        {
+                            // create http request  to send recognized text to the server
+                            var request = (HttpWebRequest)WebRequest.Create("https://jmfamilysetfgenerativeaicallsummarizer20230912113534.azurewebsites.net/api/v1/callsummarizer");
+                            request.Method = "POST";
+                            request.ContentType = "application/json";
+                            
+                            // create a JSON object to send to the server
+                            var json = "{\"ConversationId\":\"111-222358\","
+                                +"\"CustomerAccountNumber\": \"1234567890\","
+                                + "\"ClientId\": \"001\","
+                                + "\"CallDirection\": \"Inbound\","
+                                + "\"ConversationStartDateTime\": \"2023-09-08T08:00:00\","
+                                + "\"ConversationEndDateTime\": \"2023-09-08T08:05:00\","
+                                + "\"Transcript\": \"" + recognizedText.ToString() + "\"}";
+
+                            var size = json.Length;
+                                                        
+                            //send the request  to the server   
+                            using (var streamWriter = new StreamWriter(request.GetRequestStream()))
+                            {
+                                streamWriter.Write(json);
+                                streamWriter.Flush();
+                                streamWriter.Close();
+                            }
+
+                            //parse the Json Response from the server 
+                            var httpResponse = (HttpWebResponse)request.GetResponse();
+                            using (var streamReader = new StreamReader(httpResponse.GetResponseStream()))
+                            {
+                                var result = streamReader.ReadToEnd();
+                                Console.WriteLine( "\n**********************************************\n**\t\tSummarization:\t\t**\n");
+                                Console.WriteLine("**********************************************\n");
+                                Console.WriteLine(ParseResults(result));
+                                Console.WriteLine("\n**********************************************\n");
+                               
+                            }
+                            
+                            
+                        }
+
+#endif
                     }
                 }
             }).GetAwaiter().GetResult();
+        }
+
+        private static string ParseResults(string result)
+        {
+            var _result = result;
+            //result is in JSON format  
+            //parse the JSON response into a JSON object
+           
+            var json = JsonConvert.DeserializeObject<Conversation>(result);
+
+            //get the value of the "summary" attribute            
+            _result = String.Format("Summary: {0}\nSentiment: {1}\nTextAnalyticsDuration: {2}\n", json.Summary
+                , json.Sentiment , json.TextAnalyticsDuration.ToString());
+
+            return _result;
         }
 
         public static async Task RecognitionWithPushAudioStreamAsync(byte[] audioBuffer, int audioBufferLength)
@@ -252,35 +317,36 @@ namespace RingCentral.Softphone.Demo
                         // Subscribes to events.
                         recognizer.Recognizing += (s, e) =>
                         {
-                            Console.WriteLine($"RECOGNIZING: Text={e.Result.Text}");
-                            Console.WriteLine($"Reason: {e.Result.Reason}");
+      //                      Console.WriteLine($"RECOGNIZING: Text={e.Result.Text}");
+      //                      Console.WriteLine($"Reason: {e.Result.Reason}");
                         };
 
                         recognizer.Recognized += (s, e) =>
                         {
-                            Console.WriteLine($"Reason: {e.Result.Reason}");
+                           // Console.WriteLine($"Reason: {e.Result.Reason}");
 
                             if (e.Result.Reason == ResultReason.RecognizedSpeech)
                             {
-                                Console.WriteLine($"RECOGNIZED: Text={e.Result.Text}");
+                                Console.Write($"{e.Result.Text} ");
                                 recognizedText.Append(e.Result.Text);
                                 recognizedText.Append(" ");
+                                //Console.WriteLine(recognizedText.ToString());
                             }
                             else if (e.Result.Reason == ResultReason.NoMatch)
                             {
-                                Console.WriteLine($"NOMATCH: Speech could not be recognized.");
+                                //Console.WriteLine($"NOMATCH: Speech could not be recognized.");
                             }
                         };
 
                         recognizer.Canceled += (s, e) =>
                         {
-                            Console.WriteLine($"CANCELED: Reason={e.Reason}");
+                            // Console.WriteLine($"CANCELED: Reason={e.Reason}");
 
                             if (e.Reason == CancellationReason.Error)
                             {
-                                Console.WriteLine($"CANCELED: ErrorCode={e.ErrorCode}");
-                                Console.WriteLine($"CANCELED: ErrorDetails={e.ErrorDetails}");
-                                Console.WriteLine($"CANCELED: Did you update the subscription info?");
+     //                           Console.WriteLine($"CANCELED: ErrorCode={e.ErrorCode}");
+     //                           Console.WriteLine($"CANCELED: ErrorDetails={e.ErrorDetails}");
+     //                           Console.WriteLine($"CANCELED: Did you update the subscription info?");
                             }
 
                             stopRecognition.TrySetResult(0);
@@ -288,16 +354,16 @@ namespace RingCentral.Softphone.Demo
 
                         recognizer.SessionStarted += (s, e) =>
                         {
-                            Console.WriteLine("\nSession started event.");
+       //                     Console.WriteLine("\nSession started event.");
 
                         };
 
                         recognizer.SessionStopped += (s, e) =>
                         {
-                            Console.WriteLine("\nSession stopped event.");
-                            Console.WriteLine("\nStop recognition.");
-                           // stopRecognition.TrySetResult(0);
-                            Console.WriteLine("\nStop Reason: " + e);
+                           // Console.WriteLine("\nSession stopped event.");
+                           // Console.WriteLine("\nStop recognition.");
+                           //// stopRecognition.TrySetResult(0);
+                           // Console.WriteLine("\nStop Reason: " + e);
 
                         };
 
@@ -372,7 +438,7 @@ namespace RingCentral.Softphone.Demo
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Send Audio Stream Error: {ex.Message}");
+                // Console.WriteLine($"Send Audio Stream Error: {ex.Message}");
             }            
             return readBytes;
         }

@@ -5,12 +5,18 @@
         <TargetFramework>netcoreapp3.1</TargetFramework>
     </PropertyGroup>
 
+    <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
+      <DefineConstants>$(DefineConstants);DEBUG_DEMO</DefineConstants>
+    </PropertyGroup>
+
     <ItemGroup>
+        <PackageReference Include="Azure.AI.TextAnalytics" Version="5.3.0" />
         <PackageReference Include="dotenv.net" Version="3.1.2" />
         <PackageReference Include="Microsoft.CognitiveServices.Speech" Version="1.32.1" />
         <PackageReference Include="Nager.TcpClient" Version="1.1.1" />
         <PackageReference Include="NAudio" Version="2.2.1" />
         <PackageReference Include="NAudio.Lame" Version="2.1.0" />
+        <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
         <PackageReference Include="RingCentral.Net" Version="6.0.0" />
     </ItemGroup>
 
