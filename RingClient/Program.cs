@@ -160,13 +160,14 @@ namespace Supervision_Demo
                         if (party.status.code == "Proceeding")
                         {
                             agent.status = "Ringing";
-                //            Console.WriteLine("Ringing");
+                            Console.WriteLine("Ringing");
                         }
                         else if (party.status.code == "Answered")
                         {
-                //            Console.WriteLine("Answered");
+                            Console.WriteLine("Answered");
                             agent.status = "Connected";
-                         //   Console.WriteLine(jsonObj.body.telephonySessionId.ToString());
+
+                            //   Console.WriteLine(jsonObj.body.telephonySessionId.ToString());
                             if (superviseSession == false)
                             {
                                 await getCallSessionInfo(jsonObj.body.telephonySessionId.ToString(), agent.id);
@@ -182,11 +183,11 @@ namespace Supervision_Demo
                         else if (party.status.code == "Disconnected")
                         {
                             agent.status = "Idle";
-                  //          Console.WriteLine("Idle");
+                            Console.WriteLine("Idle");
                         }
                         else if (party.status.code == "Gone")
                         {
-                 //           Console.WriteLine("Transfer Gone");
+                            Console.WriteLine("Transfer Gone");
                         }
                     }
                 }

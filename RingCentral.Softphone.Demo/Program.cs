@@ -21,16 +21,23 @@ using SIPSorcery.net.RTP;
 using TinyJson;
 using Newtonsoft;
 using Newtonsoft.Json;
+using CenterSpace.NMath.Core;
+using NAudio.Dsp;
 
 namespace RingCentral.Softphone.Demo
 {
     class Program
     {
+        const int PACKETS = 3;
+        const int FRAMESIZE = 235;
+
         // https://jmfamilysetfgenerativeaicallsummarizer20230912113534.azurewebsites.net/api/v1/callsummarizer
 
         //static SpeechConfig config = null;
         static StringBuilder recognizedText = new StringBuilder();
-        
+        static DateTime callAnswered;
+        static DateTime callEnded;
+
         static void Main(string[] args)
         {
             DotEnv.Load(new DotEnvOptions().WithOverwriteExistingVars());
@@ -74,7 +81,7 @@ namespace RingCentral.Softphone.Demo
                 void OnDataReceived(byte[] receivedData)
                 {
                     var data = Encoding.UTF8.GetString(receivedData);
-//                    Console.WriteLine("Receiving...\n" + data);
+                   // Console.WriteLine("Receiving...\n" + data);
                     cachedMessages += data;
                 }
 
@@ -164,23 +171,58 @@ namespace RingCentral.Softphone.Demo
     //                        Console.WriteLine(result);
                             var answer = rtpSession.CreateAnswer(null);
                             List<byte[]> audioBuffers = new List<byte[]>();
+                            List<byte[]> audioBuffers2 = new List<byte[]>();
 
-                            var packets = 5;
-                            var framesize = 250;
+                            callAnswered = DateTime.UtcNow;
+                            //var packets = PACKETS;
+                            var framesize = FRAMESIZE;
+
+                            recognizedText.Append("Inbound Call from Customer on ");
+                            recognizedText.Append(callAnswered.ToString() + " ");
 
                             rtpSession.OnRtpPacketReceived +=
                                 (IPEndPoint remoteEndPoint, SDPMediaTypesEnum mediaType, RTPPacket rtpPacket) =>
                                 {
-                                    //drop 3 packets
-                                    packets--;
-                                    if (packets > 0)
-                                    {
-                                        return;
-                                    }
-                                    packets = 0;
+                                    var audioChunk = rtpPacket.Payload;
+
+                                    audioBuffers.Add(audioChunk);
+
+                                    ////drop  packets
+                                    //packets--;
+                                    //if (packets > 0)
+                                    //{
+                                    //    return;
+                                    //}
+                                    //packets = 0;
                                     //Console.WriteLine("OnRtpPacketReceived");
-                                                                       
-                                    audioBuffers.Add(rtpPacket.Payload);
+                                    
+                                    // do an FFT on the audioChunk byte array to determine if there is any audio in the packet
+                            
+                                //    Complex[] numbers = new Complex[audioChunk.Length];
+
+                                //float[] real = new float[audioChunk.Length];
+                                //    float[] imaginary = new float[audioChunk.Length];
+                                //    for (int i = 0; i < audioChunk.Length; i++)
+                                //    {
+                                //        real[i] = (float)audioChunk[i];
+                                //        numbers[i].X = real[i];
+                                //     }
+
+                                //    FastFourierTransform.FFT(true, audioChunk.Length, numbers);
+                                //    //Check the FFT to determine if sound is in the audio frequency range of 200 to 4000 Hz
+                                //    //if so, process the packet
+                                //    for (int i = 0; i < audioChunk.Length; i++)
+                                //    {
+                                //        if (numbers[i].X > 200 && numbers[i].X < 4000)
+                                //        {
+                                           
+                                //            break;
+                                //        }
+                                        
+                                //    }
+
+                                    //audioBuffers2.Add(audioChunk);
+
                                     var audioBufferLength = rtpPacket.Payload.Length;
                                    // System.Diagnostics.Debug.WriteLine($"audioBufferLength: {audioBufferLength}");
 
@@ -189,28 +231,21 @@ namespace RingCentral.Softphone.Demo
                                         var audioBufferToSend = new byte[audioBufferLength * framesize];
                                         for (var i = 0; i < framesize; i++)
                                         {
+                                            
                                             Buffer.BlockCopy(audioBuffers[i], 0, audioBufferToSend,
                                                                                                i * audioBufferLength, audioBufferLength);
                                         }
 
                                         audioBufferToSend = ResampleAudioStream(audioBufferToSend);
                                        
-                                        //      // Create a byte array to store the little-endian converted audio buffer
-                                        //byte[] littleEndianBuffer = new byte[audioBufferToSend.Length];
-
-                                        //// Convert each pair of bytes in the audio buffer to little-endian and store in the new buffer
-                                        //for (int i = 0; i < audioBufferToSend.Length; i += 2)
-                                        //{
-                                        //    littleEndianBuffer[i] = audioBufferToSend[i + 1];
-                                        //    littleEndianBuffer[i + 1] = audioBufferToSend[i];
-                                        //}
-
-                                        //// Use the little - endian converted buffer for recognition
-
-
-                                        //audioBufferToSend = ResampleAudioStream(littleEndianBuffer);
-
-                                        //RecognitionWithPushAudioStreamAsync(littleEndianBuffer, littleEndianBuffer.Length).GetAwaiter().GetResult();
+                                       // Create a byte array to store the little-endian converted audio buffer
+                                       // var audioBufferToSend = new byte[audioBufferLength * framesize];
+                                       // for (var i = 0; i < framesize; i++)
+                                       // {
+                                       //     // Convert the audio buffer from big-endian to little-endian
+                                       //     Buffer.BlockCopy(audioBuffers[i], 0, audioBufferToSend,
+                                       //                         i * audioBufferLength, audioBufferLength);
+                                       
                                         if ( audioBufferToSend != null)
                                     RecognitionWithPushAudioStreamAsync(audioBufferToSend, audioBufferToSend.Length).GetAwaiter().GetResult();   
                                         audioBuffers.Clear();
@@ -240,6 +275,8 @@ namespace RingCentral.Softphone.Demo
 #if DEBUG_DEMO
                         if (sipMessage.Subject.StartsWith("BYE"))
                         {
+                            callEnded = DateTime.UtcNow;
+
                             // create http request  to send recognized text to the server
                             var request = (HttpWebRequest)WebRequest.Create("https://jmfamilysetfgenerativeaicallsummarizer20230912113534.azurewebsites.net/api/v1/callsummarizer");
                             request.Method = "POST";
@@ -250,9 +287,11 @@ namespace RingCentral.Softphone.Demo
                                 +"\"CustomerAccountNumber\": \"1234567890\","
                                 + "\"ClientId\": \"001\","
                                 + "\"CallDirection\": \"Inbound\","
-                                + "\"ConversationStartDateTime\": \"2023-09-08T08:00:00\","
-                                + "\"ConversationEndDateTime\": \"2023-09-08T08:05:00\","
+                                + "\"ConversationStartDateTime\": \"" + callAnswered.ToString() + "\","
+                                + "\"ConversationEndDateTime\": \"" + callEnded.ToString() + "\","
                                 + "\"Transcript\": \"" + recognizedText.ToString() + "\"}";
+
+                            recognizedText.Clear();
 
                             var size = json.Length;
                                                         
@@ -269,7 +308,7 @@ namespace RingCentral.Softphone.Demo
                             using (var streamReader = new StreamReader(httpResponse.GetResponseStream()))
                             {
                                 var result = streamReader.ReadToEnd();
-                                Console.WriteLine( "\n**********************************************\n**\t\tSummarization:\t\t**\n");
+                                Console.WriteLine( "\n\n**********************************************\n**\t\tSummarization:\t\t**\n");
                                 Console.WriteLine("**********************************************\n");
                                 Console.WriteLine(ParseResults(result));
                                 Console.WriteLine("\n**********************************************\n");
@@ -294,7 +333,7 @@ namespace RingCentral.Softphone.Demo
             var json = JsonConvert.DeserializeObject<Conversation>(result);
 
             //get the value of the "summary" attribute            
-            _result = String.Format("Summary: {0}\nSentiment: {1}\nTextAnalyticsDuration: {2}\n", json.Summary
+            _result = String.Format("Summary:\n\t{0}\n\nSentiment:\n\t{1}\n\nTextAnalyticsDuration:\n\t{2}\n", json.Summary
                 , json.Sentiment , json.TextAnalyticsDuration.ToString());
 
             return _result;
@@ -304,6 +343,8 @@ namespace RingCentral.Softphone.Demo
         {
            var config = SpeechConfig.FromSubscription(Environment.GetEnvironmentVariable("SPEECH_SUB_KEY"), Environment.GetEnvironmentVariable("SPEECH_REGION"));
 
+            config.SetProfanity(ProfanityOption.Masked);
+
             var stopRecognition = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
 
             // Create a push stream
@@ -311,9 +352,17 @@ namespace RingCentral.Softphone.Demo
             {
                 using (var audioInput = AudioConfig.FromStreamInput(pushStream))
                 {
+                   
                     // Creates a speech recognizer using audio stream input.
                     using (var recognizer = new SpeechRecognizer(config, audioInput))
                     {
+                        var phraseList = PhraseListGrammar.FromRecognizer(recognizer);
+
+                        phraseList.AddPhrase("Volvo Car Financial");
+                        phraseList.AddPhrase("South East Toyota");
+                        phraseList.AddPhrase("year and model");
+                        phraseList.AddPhrase("Toyota 20 23 Camry SE");                      
+                        
                         // Subscribes to events.
                         recognizer.Recognizing += (s, e) =>
                         {
@@ -327,9 +376,9 @@ namespace RingCentral.Softphone.Demo
 
                             if (e.Result.Reason == ResultReason.RecognizedSpeech)
                             {
-                                Console.Write($"{e.Result.Text} ");
-                                recognizedText.Append(e.Result.Text);
-                                recognizedText.Append(" ");
+                                var speechResult = e.Result.Text.Replace('.', ' ');
+                                Console.Write($"{speechResult}");
+                                recognizedText.Append(speechResult);                                
                                 //Console.WriteLine(recognizedText.ToString());
                             }
                             else if (e.Result.Reason == ResultReason.NoMatch)
@@ -373,7 +422,7 @@ namespace RingCentral.Softphone.Demo
                         // open and read the wave file and push the buffers into the recognizer
                         using (BinaryAudioStreamReader reader = new BinaryAudioStreamReader(new MemoryStream(audioBuffer, 0, audioBufferLength)))
                         {
-                            byte[] buffer = new byte[1000];
+                            byte[] buffer = new byte[160 * FRAMESIZE];
                             while (true)
                             {
                                 var readSamples = reader.Read(buffer, (uint)buffer.Length);
@@ -391,7 +440,7 @@ namespace RingCentral.Softphone.Demo
                         Task.WaitAny(new[] { stopRecognition.Task });
 
                         // Stops recognition.
-                      //  await recognizer.StopContinuousRecognitionAsync().ConfigureAwait(false);
+                        await recognizer.StopContinuousRecognitionAsync().ConfigureAwait(false);
                     }
                 }
             }
@@ -420,17 +469,17 @@ namespace RingCentral.Softphone.Demo
                                 var reader = new BinaryReader(wms);
                                 readBytes = new byte[wms.Length];
                                 readBytes = reader.ReadBytes((int)wms.Length);
-                                rs.Position = 0;
+                               // rs.Position = 0;
                             }
                         }
                         // Need to convert the wave file to MP3 to play in the browser.
 
-                        using (var wavOutSampler = new MediaFoundationResampler(rs, wavOutFormat))
-                        {
-                            DateTime date = DateTime.UtcNow;
-                            WaveFileWriter.CreateWaveFile($"Calllog-{date.ToString("ddMMyyyy-HHmmss")}.wav", wavOutSampler);
+                        //using (var wavOutSampler = new MediaFoundationResampler(rs, wavOutFormat))
+                        //{
+                        //    DateTime date = DateTime.UtcNow;
+                        //    WaveFileWriter.CreateWaveFile($"Calllog-{date.ToString("ddMMyyyy-HHmmss")}.wav", wavOutSampler);
 
-                        }
+                        //}
 
                     }
                 }              
@@ -438,7 +487,7 @@ namespace RingCentral.Softphone.Demo
             }
             catch (Exception ex)
             {
-                // Console.WriteLine($"Send Audio Stream Error: {ex.Message}");
+                 Console.WriteLine($"Send Audio Stream Error: {ex.Message}");
             }            
             return readBytes;
         }
