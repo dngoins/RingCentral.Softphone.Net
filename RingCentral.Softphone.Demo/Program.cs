@@ -23,6 +23,7 @@ using Newtonsoft;
 using Newtonsoft.Json;
 using CenterSpace.NMath.Core;
 using NAudio.Dsp;
+using Microsoft.CognitiveServices.Speech.Transcription;
 
 namespace RingCentral.Softphone.Demo
 {
@@ -171,8 +172,7 @@ namespace RingCentral.Softphone.Demo
     //                        Console.WriteLine(result);
                             var answer = rtpSession.CreateAnswer(null);
                             List<byte[]> audioBuffers = new List<byte[]>();
-                            List<byte[]> audioBuffers2 = new List<byte[]>();
-
+                          
                             callAnswered = DateTime.UtcNow;
                             //var packets = PACKETS;
                             var framesize = FRAMESIZE;
@@ -354,7 +354,7 @@ namespace RingCentral.Softphone.Demo
                 {
                    
                     // Creates a speech recognizer using audio stream input.
-                    using (var recognizer = new SpeechRecognizer(config, audioInput))
+                    using (var recognizer = new ConversationTranscriber(config, audioInput))
                     {
                         var phraseList = PhraseListGrammar.FromRecognizer(recognizer);
 
@@ -364,13 +364,13 @@ namespace RingCentral.Softphone.Demo
                         phraseList.AddPhrase("Toyota 20 23 Camry SE");                      
                         
                         // Subscribes to events.
-                        recognizer.Recognizing += (s, e) =>
+                        recognizer.Transcribing += (s, e) =>
                         {
       //                      Console.WriteLine($"RECOGNIZING: Text={e.Result.Text}");
       //                      Console.WriteLine($"Reason: {e.Result.Reason}");
                         };
 
-                        recognizer.Recognized += (s, e) =>
+                        recognizer.Transcribed += (s, e) =>
                         {
                            // Console.WriteLine($"Reason: {e.Result.Reason}");
 
@@ -417,7 +417,7 @@ namespace RingCentral.Softphone.Demo
                         };
 
                         // Starts continuous recognition. Uses StopContinuousRecognitionAsync() to stop recognition.
-                        await recognizer.StartContinuousRecognitionAsync().ConfigureAwait(false);
+                        await recognizer.StartTranscribingAsync().ConfigureAwait(false);
 
                         // open and read the wave file and push the buffers into the recognizer
                         using (BinaryAudioStreamReader reader = new BinaryAudioStreamReader(new MemoryStream(audioBuffer, 0, audioBufferLength)))
@@ -440,7 +440,7 @@ namespace RingCentral.Softphone.Demo
                         Task.WaitAny(new[] { stopRecognition.Task });
 
                         // Stops recognition.
-                        await recognizer.StopContinuousRecognitionAsync().ConfigureAwait(false);
+                        await recognizer.StopTranscribingAsync().ConfigureAwait(false);
                     }
                 }
             }
